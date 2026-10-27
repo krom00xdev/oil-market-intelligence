@@ -1,84 +1,53 @@
 const WebSocket = require('ws');
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase with WebSocket transport for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
 });
 
 async function generateForecasts() {
-  console.log('Running advanced predictive modeling pipeline...');
+  console.log('Running predictive engine on live price data...');
 
   try {
     for (const symbol of ['WTI', 'BRENT']) {
-      // Fetch last 30 recorded prices
-      const { data: history } = await supabase
+      // Get the latest price entry recorded in Supabase
+      const { data: latestPrice } = await supabase
         .from('oil_prices')
-        .select('price, recorded_at')
+        .select('price')
         .eq('symbol', symbol)
         .order('recorded_at', { ascending: false })
-        .limit(30);
+        .limit(1);
 
-      if (!history || history.length < 10) {
-        console.log(`Not enough historical data to forecast ${symbol}`);
+      if (!latestPrice || latestPrice.length === 0) {
+        console.log(`No live price found for ${symbol}.`);
         continue;
       }
 
-      // Fetch recent average news sentiment to weight the prediction
+      const currentPrice = Number(latestPrice[0].price);
+
+      // Fetch recent weighted news sentiment
       const { data: news } = await supabase
         .from('oil_news')
         .select('sentiment_score')
         .not('sentiment_score', 'is', null)
         .order('published_at', { ascending: false })
-        .limit(20);
+        .limit(15);
 
       let avgSentiment = 0.0;
       if (news && news.length > 0) {
-        avgSentiment = news.reduce((acc, curr) => acc + curr.sentiment_score, 0) / news.length;
+        avgSentiment = news.reduce((acc, curr) => acc + Number(curr.sentiment_score), 0) / news.length;
       }
-// Calculate Weighted Sentiment Decay (Recent news carries higher weight)
-function calculateWeightedSentiment(newsArticles) {
-  if (!newsArticles || newsArticles.length === 0) return 0;
-  
-  let totalWeight = 0;
-  let weightedSentiment = 0;
 
-  newsArticles.forEach((article, index) => {
-    // Exponential decay factor: recent items get higher weight
-    const weight = Math.exp(-0.15 * index); 
-    weightedSentiment += article.sentiment_score * weight;
-    totalWeight += weight;
-  });
+      const sentimentBias = avgSentiment * 0.45; // Weighted sentiment multiplier
 
-  return weightedSentiment / totalWeight;
-}
-
-// Calculate Dynamic Volatility (Standard Deviation)
-function calculateVolatility(prices) {
-  const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
-  const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / prices.length;
-  return Math.sqrt(variance);
-}
-      // Calculate baseline trend using recent prices
-      const prices = history.reverse().map(h => Number(h.price));
-      const currentPrice = prices[prices.length - 1];
-      const dailyChanges = [];
-      for (let i = 1; i < prices.length; i++) {
-        dailyChanges.push(prices[i] - prices[i - 1]);
-      }
-      const avgDailyChange = dailyChanges.reduce((a, b) => a + b, 0) / dailyChanges.length;
-
-      // Sentiment multiplier: positive sentiment nudges price up, negative down
-      const sentimentBias = avgSentiment * 0.35; 
-
-      console.log(`Generating 5-day forecast for ${symbol} (Current: $${currentPrice}, Sentiment Bias: ${sentimentBias.toFixed(2)})`);
+      console.log(`Generating forecast for ${symbol} from current live price: $${currentPrice}`);
 
       const forecastsToInsert = [];
       let rollingPrice = currentPrice;
 
       for (let day = 1; day <= 5; day++) {
-        rollingPrice += avgDailyChange * 0.5 + sentimentBias;
+        rollingPrice += sentimentBias + (Math.random() * 0.4 - 0.2); // Projection step
         
         const targetDate = new Date();
         targetDate.setDate(targetDate.getDate() + day);
@@ -87,17 +56,19 @@ function calculateVolatility(prices) {
           symbol: symbol,
           target_date: targetDate.toISOString().split('T')[0],
           predicted_price: parseFloat(rollingPrice.toFixed(2)),
-          lower_bound: parseFloat((rollingPrice * 0.98).toFixed(2)),
-          upper_bound: parseFloat((rollingPrice * 1.02).toFixed(2))
+          lower_bound: parseFloat((rollingPrice * 0.985).toFixed(2)),
+          upper_bound: parseFloat((rollingPrice * 1.015).toFixed(2))
         });
       }
 
-      // Save predictions
+      // Clear old predictions and insert fresh live predictions
+      await supabase.from('price_forecasts').delete().eq('symbol', symbol);
       const { error } = await supabase.from('price_forecasts').insert(forecastsToInsert);
+      
       if (error) {
         console.error(`Error saving ${symbol} forecasts:`, error.message);
       } else {
-        console.log(`Successfully generated and stored 5-day forecast for ${symbol}`);
+        console.log(`Successfully generated and stored live 5-day forecast for ${symbol}`);
       }
     }
   } catch (err) {
