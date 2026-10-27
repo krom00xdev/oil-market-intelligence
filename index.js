@@ -3,6 +3,7 @@ const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// Initialize Supabase client with WebSocket transport for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
@@ -26,19 +27,75 @@ function isRelevant(text) {
   return KEYWORDS.some(kw => text.toLowerCase().includes(kw));
 }
 
-async function fetchAndStorePrices() {
-  console.log('Fetching live oil prices...');
+/**
+ * Fetches real market prices for crude oil futures.
+ */
+async function fetchRealCommodityPrice(symbol) {
+  const yahooSymbol = symbol === 'WTI' ? 'CL=F' : 'BZ=F';
+  
+  // Primary Endpoint: Yahoo Finance Chart API
   try {
-    let wtiPrice = 72.50 + (Math.random() * 2 - 1);
-    let brentPrice = 76.80 + (Math.random() * 2 - 1);
-
-    await supabase.from('oil_prices').insert([
-      { symbol: 'WTI', price: parseFloat(wtiPrice.toFixed(2)), change_24h: 0.45 },
-      { symbol: 'BRENT', price: parseFloat(brentPrice.toFixed(2)), change_24h: 0.32 }
-    ]);
-    console.log(`Saved Prices - WTI: $${wtiPrice.toFixed(2)}, Brent: $${brentPrice.toFixed(2)}`);
+    const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && meta.regularMarketPrice) {
+        const price = meta.regularMarketPrice;
+        const prevClose = meta.chartPreviousClose || price;
+        const change = parseFloat((price - prevClose).toFixed(2));
+        return { price: parseFloat(price.toFixed(2)), change_24h: change };
+      }
+    }
   } catch (err) {
-    console.error('Price fetch error:', err.message);
+    console.warn(`Primary price fetch for ${symbol} failed:`, err.message);
+  }
+
+  // Secondary Fallback Endpoint: Alternative Financial Data Feed
+  try {
+    const stSymbol = symbol === 'WTI' ? 'CL.F' : 'BZ.F';
+    const res = await fetch(`https://stooq.com/q/l/?s=${stSymbol}&f=sd2t2ohlcv&h&e=json`);
+    if (res.ok) {
+      const data = await res.json();
+      const quote = data?.symbols?.[0];
+      if (quote && quote.close) {
+        const price = parseFloat(quote.close);
+        return { price: parseFloat(price.toFixed(2)), change_24h: 0.0 };
+      }
+    }
+  } catch (err) {
+    console.warn(`Fallback price fetch for ${symbol} failed:`, err.message);
+  }
+
+  return null;
+}
+
+async function fetchAndStorePrices() {
+  console.log('Fetching live real-time oil market prices...');
+  try {
+    const wti = await fetchRealCommodityPrice('WTI');
+    const brent = await fetchRealCommodityPrice('BRENT');
+
+    const pricesToInsert = [];
+    if (wti) {
+      pricesToInsert.push({ symbol: 'WTI', price: wti.price, change_24h: wti.change_24h });
+      console.log(`Live Market WTI: $${wti.price}`);
+    }
+    if (brent) {
+      pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h });
+      console.log(`Live Market BRENT: $${brent.price}`);
+    }
+
+    if (pricesToInsert.length > 0) {
+      const { error } = await supabase.from('oil_prices').insert(pricesToInsert);
+      if (error) console.error('Error saving prices to Supabase:', error.message);
+      else console.log('Successfully saved real market prices to database.');
+    } else {
+      console.warn('Could not fetch real-time price updates in this cycle.');
+    }
+  } catch (err) {
+    console.error('Price fetch execution error:', err.message);
   }
 }
 
@@ -77,18 +134,31 @@ async function analyzeNewsWithGemini() {
   console.log('Analyzing unanalyzed articles with Gemini...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  const { data: articles } = await supabase.from('oil_news').select('id, title, description').is('sentiment_score', null).limit(10);
-  if (!articles || articles.length === 0) return;
+  const { data: articles, error: fetchError } = await supabase.from('oil_news').select('id, title, description').is('sentiment_score', null).limit(10);
+  
+  if (fetchError) {
+    console.error('Error fetching unanalyzed articles:', fetchError.message);
+    return;
+  }
+
+  if (!articles || articles.length === 0) {
+    console.log('No unanalyzed articles found.');
+    return;
+  }
+
+  console.log(`Found ${articles.length} articles to analyze.`);
 
   for (const article of articles) {
     try {
       const prompt = `Analyze this oil market news item: "${article.title} - ${article.description}". Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and 1.0 (extremely bullish). No markdown, no explanations, just the number.`;
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const score = parseFloat(response.text().trim());
+      const scoreText = response.text().trim();
+      const score = parseFloat(scoreText);
       
       if (!isNaN(score)) {
         await supabase.from('oil_news').update({ sentiment_score: score }).eq('id', article.id);
+        console.log(`Updated article "${article.title.substring(0, 30)}..." with sentiment: ${score}`);
       } else {
         await supabase.from('oil_news').update({ sentiment_score: 0.0 }).eq('id', article.id);
       }
@@ -106,15 +176,15 @@ async function generateSynthesizedReport() {
   const { data: prices } = await supabase.from('oil_prices').select('symbol, price').order('recorded_at', { ascending: false }).limit(2);
 
   let marketBias = "Neutral";
-  let summaryText = "Crude oil markets are currently trading in a balanced range as traders weigh global supply metrics against macroeconomic demand indicators. Geopolitical monitoring remains high across key transit corridors.";
-  let keyDrivers = ["OPEC+ output policy tracking", "Geopolitical supply risk premiums", "Global petroleum inventory adjustments"];
+  let summaryText = "Crude oil markets are currently trading dynamically as traders weigh global supply metrics, shipping corridor stability, and macroeconomic demand trends.";
+  let keyDrivers = ["OPEC+ output policy monitoring", "Geopolitical supply risk premiums", "Global petroleum inventory adjustments"];
 
   if (recentNews && recentNews.length > 0) {
     const newsSummary = recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n');
-    const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $72.50, Brent: $76.80';
+    const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $100.75, Brent: $114.93';
 
     const prompt = `
-      You are a Senior Energy Commodity Analyst. Given current prices (${priceSummary}) and recent news:
+      You are a Senior Energy Commodity Analyst. Given current real-time prices (${priceSummary}) and recent market news:
       ${newsSummary}
 
       Provide a synthesized market feedback report. Respond ONLY with a raw JSON object (no markdown, no backticks) in this exact format:
@@ -134,11 +204,10 @@ async function generateSynthesizedReport() {
       if (reportData.summary) summaryText = reportData.summary;
       if (reportData.key_drivers) keyDrivers = reportData.key_drivers;
     } catch (err) {
-      console.warn('Using default fallback structure due to parse error:', err.message);
+      console.warn('Using fallback structured briefing due to parse error:', err.message);
     }
   }
 
-  // Guaranteed insert so frontend never gets stuck loading
   const { error: reportError } = await supabase.from('daily_market_reports').insert([{
     market_bias: marketBias,
     summary: summaryText,
