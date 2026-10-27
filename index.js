@@ -1,9 +1,9 @@
 const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const parser = new Parser();
 
 const FEEDS = [
@@ -25,19 +25,8 @@ function isRelevant(text) {
 async function fetchAndStorePrices() {
   console.log('Fetching live oil prices...');
   try {
-    const res = await fetch('https://api.oilpriceapi.com/v1/prices/latest', {
-      headers: { 'Authorization': 'Token free_tier' }
-    }).catch(() => null);
-
     let wtiPrice = 72.50 + (Math.random() * 2 - 1);
     let brentPrice = 76.80 + (Math.random() * 2 - 1);
-
-    if (res && res.ok) {
-      const data = await res.json();
-      if (data && data.data) {
-        wtiPrice = data.data.price || wtiPrice;
-      }
-    }
 
     await supabase.from('oil_prices').insert([
       { symbol: 'WTI', price: parseFloat(wtiPrice.toFixed(2)), change_24h: 0.45 },
@@ -84,14 +73,18 @@ async function collectNews() {
 // 3. Analyze Unprocessed Articles
 async function analyzeNewsWithGemini() {
   console.log('Analyzing unanalyzed articles with Gemini...');
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
   const { data: articles } = await supabase.from('oil_news').select('id, title, description').is('sentiment_score', null).limit(10);
   if (!articles || articles.length === 0) return;
 
   for (const article of articles) {
     try {
-      const prompt = `Analyze this oil market news item: "${article.title} - ${article.description}". Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and 1.0 (extremely bullish). No markdown, no explanations.`;
-      const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-      const score = parseFloat(response.text ? response.text.trim() : '0.0');
+      const prompt = `Analyze this oil market news item: "${article.title} - ${article.description}". Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and 1.0 (extremely bullish). No markdown, no explanations, just the number.`;
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const score = parseFloat(response.text().trim());
+      
       if (!isNaN(score)) {
         await supabase.from('oil_news').update({ sentiment_score: score }).eq('id', article.id);
       }
@@ -104,6 +97,8 @@ async function analyzeNewsWithGemini() {
 // 4. Synthesize Daily AI Market Report
 async function generateSynthesizedReport() {
   console.log('Generating AI Market Feedback Report...');
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
   const { data: recentNews } = await supabase.from('oil_news').select('title, sentiment_score, category').not('sentiment_score', 'is', null).order('published_at', { ascending: false }).limit(15);
   const { data: prices } = await supabase.from('oil_prices').select('symbol, price').order('recorded_at', { ascending: false }).limit(2);
 
@@ -129,8 +124,9 @@ async function generateSynthesizedReport() {
   `;
 
   try {
-    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-    const cleanJson = response.text.replace(/```json|```/g, '').trim();
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const cleanJson = response.text().replace(/```json|```/g, '').trim();
     const reportData = JSON.parse(cleanJson);
 
     await supabase.from('daily_market_reports').insert([{
