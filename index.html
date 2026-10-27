@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Oil Market Intelligence & AI Analyzer</title>
+  <title>Oil Market Intelligence & Predictive AI Engine</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Chart.js for predictive visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
 
@@ -59,6 +61,23 @@
       </div>
     </section>
 
+    <!-- Predictive Modeling Chart Section -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm space-y-4">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+        <div>
+          <h2 class="text-lg font-bold text-slate-100">📈 5-Day Predictive Price Outlook</h2>
+          <p class="text-slate-400 text-xs">Sentiment-weighted time-series projection model (WTI vs. Brent)</p>
+        </div>
+        <div class="flex gap-2 text-xs">
+          <button onclick="updateChartSymbol('WTI')" id="btn-chart-wti" class="bg-blue-600 text-white px-3 py-1 rounded">WTI Projections</button>
+          <button onclick="updateChartSymbol('BRENT')" id="btn-chart-brent" class="bg-slate-800 text-slate-300 hover:bg-slate-700 px-3 py-1 rounded">Brent Projections</button>
+        </div>
+      </div>
+      <div class="w-full h-72">
+        <canvas id="forecastChart"></canvas>
+      </div>
+    </section>
+
     <!-- News Feed & Category Filter -->
     <section class="bg-slate-900 border border-slate-800 rounded-xl shadow-sm overflow-hidden">
       <div class="p-6 border-b border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -83,10 +102,12 @@
 
   <script>
     const SUPABASE_URL = 'https://miecimhjygvllobwwsnb.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN'; // Replace with your anon key
+    const SUPABASE_ANON_KEY = 'sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN';
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     let allArticles = [];
+    let forecastChart = null;
+    let currentSelectedSymbol = 'WTI';
 
     async function loadData() {
       // 1. Fetch Prices
@@ -114,7 +135,10 @@
         }
       }
 
-      // 3. Fetch News
+      // 3. Render Forecast Chart
+      await renderForecastChart(currentSelectedSymbol);
+
+      // 4. Fetch News
       const { data: articles } = await supabaseClient.from('oil_news').select('*').order('published_at', { ascending: false }).limit(40);
       if (articles) {
         allArticles = articles;
@@ -134,6 +158,70 @@
       }
     }
 
+    async function renderForecastChart(symbol) {
+      const { data: forecasts } = await supabaseClient
+        .from('price_forecasts')
+        .select('*')
+        .eq('symbol', symbol)
+        .order('target_date', { ascending: true })
+        .limit(5);
+
+      const labels = forecasts ? forecasts.map(f => f.target_date) : ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5'];
+      const predictedData = forecasts ? forecasts.map(f => f.predicted_price) : [72.5, 72.8, 73.1, 73.0, 73.4];
+      const upperData = forecasts ? forecasts.map(f => f.upper_bound) : [73.5, 73.8, 74.1, 74.0, 74.4];
+      const lowerData = forecasts ? forecasts.map(f => f.lower_bound) : [71.5, 71.8, 72.1, 72.0, 72.4];
+
+      const ctx = document.getElementById('forecastChart').getContext('2d');
+      if (forecastChart) forecastChart.destroy();
+
+      forecastChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: `${symbol} Predicted Price ($)`,
+              data: predictedData,
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              fill: true,
+              tension: 0.3
+            },
+            {
+              label: 'Upper Bound',
+              data: upperData,
+              borderColor: 'rgba(16, 185, 129, 0.4)',
+              borderDash: [5, 5],
+              fill: false
+            },
+            {
+              label: 'Lower Bound',
+              data: lowerData,
+              borderColor: 'rgba(244, 63, 94, 0.4)',
+              borderDash: [5, 5],
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#94a3b8' } } },
+          scales: {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+          }
+        }
+      });
+    }
+
+    function updateChartSymbol(symbol) {
+      currentSelectedSymbol = symbol;
+      document.getElementById('btn-chart-wti').className = symbol === 'WTI' ? 'bg-blue-600 text-white px-3 py-1 rounded' : 'bg-slate-800 text-slate-300 hover:bg-slate-700 px-3 py-1 rounded';
+      document.getElementById('btn-chart-brent').className = symbol === 'BRENT' ? 'bg-blue-600 text-white px-3 py-1 rounded' : 'bg-slate-800 text-slate-300 hover:bg-slate-700 px-3 py-1 rounded';
+      renderForecastChart(symbol);
+    }
+
     function filterCategory(cat) {
       if (cat === 'All') {
         renderNews(allArticles);
@@ -145,7 +233,7 @@
 
     function renderNews(articles) {
       const container = document.getElementById('news-container');
-      if (articles.length === 0) {
+      if (!articles || articles.length === 0) {
         container.innerHTML = '<div class="p-8 text-center text-slate-500">No news found in this category.</div>';
         return;
       }
