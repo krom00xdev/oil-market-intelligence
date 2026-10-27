@@ -1,12 +1,12 @@
-name: Run Oil News Collector
+name: Run Oil News & AI Analyzer
 
 on:
   schedule:
-    - cron: '0 */2 * * *' # Runs automatically every 2 hours
-  workflow_dispatch: # Allows you to trigger it manually anytime from GitHub
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
 jobs:
-  collect:
+  collect-and-analyze:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -15,13 +15,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run Collector Script
+      - name: Run Script
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node index.js
