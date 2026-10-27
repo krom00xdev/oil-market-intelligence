@@ -37,7 +37,29 @@ async function generateForecasts() {
       if (news && news.length > 0) {
         avgSentiment = news.reduce((acc, curr) => acc + curr.sentiment_score, 0) / news.length;
       }
+// Calculate Weighted Sentiment Decay (Recent news carries higher weight)
+function calculateWeightedSentiment(newsArticles) {
+  if (!newsArticles || newsArticles.length === 0) return 0;
+  
+  let totalWeight = 0;
+  let weightedSentiment = 0;
 
+  newsArticles.forEach((article, index) => {
+    // Exponential decay factor: recent items get higher weight
+    const weight = Math.exp(-0.15 * index); 
+    weightedSentiment += article.sentiment_score * weight;
+    totalWeight += weight;
+  });
+
+  return weightedSentiment / totalWeight;
+}
+
+// Calculate Dynamic Volatility (Standard Deviation)
+function calculateVolatility(prices) {
+  const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / prices.length;
+  return Math.sqrt(variance);
+}
       // Calculate baseline trend using recent prices
       const prices = history.reverse().map(h => Number(h.price));
       const currentPrice = prices[prices.length - 1];
