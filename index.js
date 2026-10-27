@@ -3,7 +3,6 @@ const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Initialize Supabase with WebSocket transport for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
@@ -27,7 +26,6 @@ function isRelevant(text) {
   return KEYWORDS.some(kw => text.toLowerCase().includes(kw));
 }
 
-// 1. Fetch & Store Live Commodity Prices
 async function fetchAndStorePrices() {
   console.log('Fetching live oil prices...');
   try {
@@ -44,7 +42,6 @@ async function fetchAndStorePrices() {
   }
 }
 
-// 2. Collect & Store News
 async function collectNews() {
   console.log('Collecting oil market news...');
   for (const feedConfig of FEEDS) {
@@ -76,7 +73,6 @@ async function collectNews() {
   }
 }
 
-// 3. Analyze Unprocessed Articles
 async function analyzeNewsWithGemini() {
   console.log('Analyzing unanalyzed articles with Gemini...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -100,7 +96,6 @@ async function analyzeNewsWithGemini() {
   }
 }
 
-// 4. Synthesize Daily AI Market Report
 async function generateSynthesizedReport() {
   console.log('Generating AI Market Feedback Report...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -147,11 +142,17 @@ async function generateSynthesizedReport() {
 }
 
 async function runPipeline() {
-  await fetchAndStorePrices();
-  await collectNews();
-  await analyzeNewsWithGemini();
-  await generateSynthesizedReport();
-  console.log('Complete pipeline finished.');
+  try {
+    await fetchAndStorePrices();
+    await collectNews();
+    await analyzeNewsWithGemini();
+    await generateSynthesizedReport();
+    console.log('Complete pipeline finished successfully.');
+  } catch (err) {
+    console.error('Pipeline error:', err);
+  } finally {
+    process.exit(0);
+  }
 }
 
 runPipeline();
