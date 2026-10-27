@@ -1,13 +1,14 @@
 {
   "name": "oil-news-collector",
   "version": "1.0.0",
-  "description": "Automated oil market news collector",
+  "description": "Automated oil market news collector and analyzer",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "@google/genai": "^0.1.1"
   }
 }
