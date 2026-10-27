@@ -77,18 +77,37 @@ async function analyzeNewsWithGemini() {
   console.log('Analyzing unanalyzed articles with Gemini...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  const { data: articles } = await supabase.from('oil_news').select('id, title, description').is('sentiment_score', null).limit(10);
-  if (!articles || articles.length === 0) return;
+  const { data: articles, error: fetchError } = await supabase.from('oil_news').select('id, title, description').is('sentiment_score', null).limit(10);
+  
+  if (fetchError) {
+    console.error('Error fetching unanalyzed articles:', fetchError.message);
+    return;
+  }
+
+  if (!articles || articles.length === 0) {
+    console.log('No unanalyzed articles found.');
+    return;
+  }
+
+  console.log(`Found ${articles.length} articles to analyze.`);
 
   for (const article of articles) {
     try {
       const prompt = `Analyze this oil market news item: "${article.title} - ${article.description}". Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and 1.0 (extremely bullish). No markdown, no explanations, just the number.`;
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const score = parseFloat(response.text().trim());
+      const scoreText = response.text().trim();
+      const score = parseFloat(scoreText);
       
       if (!isNaN(score)) {
-        await supabase.from('oil_news').update({ sentiment_score: score }).eq('id', article.id);
+        const { error: updateError } = await supabase.from('oil_news').update({ sentiment_score: score }).eq('id', article.id);
+        if (updateError) {
+          console.error(`Failed to update article ${article.id}:`, updateError.message);
+        } else {
+          console.log(`Updated article "${article.title.substring(0, 30)}..." with sentiment: ${score}`);
+        }
+      } else {
+        console.warn(`Could not parse score "${scoreText}" for article ID ${article.id}`);
       }
     } catch (err) {
       console.error('Gemini article analysis error:', err.message);
@@ -103,7 +122,10 @@ async function generateSynthesizedReport() {
   const { data: recentNews } = await supabase.from('oil_news').select('title, sentiment_score, category').not('sentiment_score', 'is', null).order('published_at', { ascending: false }).limit(15);
   const { data: prices } = await supabase.from('oil_prices').select('symbol, price').order('recorded_at', { ascending: false }).limit(2);
 
-  if (!recentNews || recentNews.length === 0) return;
+  if (!recentNews || recentNews.length === 0) {
+    console.log('Skipping report generation: No scored articles available yet.');
+    return;
+  }
 
   const newsSummary = recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n');
   const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $72.50, Brent: $76.80';
@@ -130,12 +152,17 @@ async function generateSynthesizedReport() {
     const cleanJson = response.text().replace(/```json|```/g, '').trim();
     const reportData = JSON.parse(cleanJson);
 
-    await supabase.from('daily_market_reports').insert([{
+    const { error: reportError } = await supabase.from('daily_market_reports').insert([{
       market_bias: reportData.market_bias,
       summary: reportData.summary,
       key_drivers: reportData.key_drivers
     }]);
-    console.log('Successfully generated and saved AI Market Report!');
+
+    if (reportError) {
+      console.error('Failed to save market report:', reportError.message);
+    } else {
+      console.log('Successfully generated and saved AI Market Report!');
+    }
   } catch (err) {
     console.error('Report synthesis error:', err.message);
   }
