@@ -18,8 +18,13 @@
         <h1 class="text-2xl font-bold tracking-tight flex items-center gap-2">🛢️ Oil Market Intelligence Engine</h1>
         <p class="text-slate-400 text-sm">Real-time multi-source news ingestion & Gemini AI sentiment analysis (Educational Purposes Only)</p>
       </div>
-      <div id="status-badge" class="bg-emerald-950 text-emerald-400 border border-emerald-800 px-4 py-1.5 rounded-full text-xs font-semibold">
-        ● Live Feed Active
+      <div class="flex items-center gap-3">
+        <span class="bg-indigo-950 text-indigo-400 border border-indigo-800/80 px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5">
+          ⏱️ Auto-updates every 10 mins
+        </span>
+        <div id="status-badge" class="bg-emerald-950 text-emerald-400 border border-emerald-800 px-4 py-1.5 rounded-full text-xs font-semibold">
+          ● Live Feed Active
+        </div>
       </div>
     </div>
   </header>
@@ -36,10 +41,18 @@
         <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Brent Crude</h3>
         <p id="price-brent" class="text-3xl font-bold mt-2 text-white">$ --.--</p>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Average News Sentiment</h3>
-        <p id="stat-sentiment" class="text-3xl font-bold mt-2 text-slate-300">-</p>
+      
+      <!-- Average News Sentiment Card with Helper Note -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Average News Sentiment</h3>
+          <p id="stat-sentiment" class="text-3xl font-bold mt-2 text-slate-300">-</p>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-800/80 leading-tight">
+          ℹ️ Scale ranges from <strong class="text-emerald-400">+1.0</strong> (Bullish/Price Up) to <strong class="text-rose-400">-1.0</strong> (Bearish/Price Down).
+        </p>
       </div>
+
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
         <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Market Outlook Bias</h3>
         <p id="stat-bias" class="text-3xl font-bold mt-2 text-amber-400">Neutral</p>
@@ -143,11 +156,11 @@
       if (articles) {
         allArticles = articles;
         
-        // Stats
-        const scored = articles.filter(a => a.sentiment_score !== null);
+        // Calculate average sentiment for articles that have been analyzed
+        const scored = articles.filter(a => a.sentiment_score !== null && !isNaN(a.sentiment_score));
         if (scored.length > 0) {
-          const avg = scored.reduce((acc, curr) => acc + curr.sentiment_score, 0) / scored.length;
-          document.getElementById('stat-sentiment').textContent = avg.toFixed(2);
+          const avg = scored.reduce((acc, curr) => acc + Number(curr.sentiment_score), 0) / scored.length;
+          document.getElementById('stat-sentiment').textContent = (avg > 0 ? `+${avg.toFixed(2)}` : avg.toFixed(2));
           const biasEl = document.getElementById('stat-bias');
           if (avg > 0.1) { biasEl.textContent = 'Bullish 📈'; biasEl.className = 'text-3xl font-bold mt-2 text-emerald-400'; }
           else if (avg < -0.1) { biasEl.textContent = 'Bearish 📉'; biasEl.className = 'text-3xl font-bold mt-2 text-rose-400'; }
@@ -166,10 +179,10 @@
         .order('target_date', { ascending: true })
         .limit(5);
 
-      const labels = forecasts ? forecasts.map(f => f.target_date) : ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5'];
-      const predictedData = forecasts ? forecasts.map(f => f.predicted_price) : [72.5, 72.8, 73.1, 73.0, 73.4];
-      const upperData = forecasts ? forecasts.map(f => f.upper_bound) : [73.5, 73.8, 74.1, 74.0, 74.4];
-      const lowerData = forecasts ? forecasts.map(f => f.lower_bound) : [71.5, 71.8, 72.1, 72.0, 72.4];
+      const labels = forecasts && forecasts.length > 0 ? forecasts.map(f => f.target_date) : ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5'];
+      const predictedData = forecasts && forecasts.length > 0 ? forecasts.map(f => f.predicted_price) : [72.5, 72.8, 73.1, 73.0, 73.4];
+      const upperData = forecasts && forecasts.length > 0 ? forecasts.map(f => f.upper_bound) : [73.5, 73.8, 74.1, 74.0, 74.4];
+      const lowerData = forecasts && forecasts.length > 0 ? forecasts.map(f => f.lower_bound) : [71.5, 71.8, 72.1, 72.0, 72.4];
 
       const ctx = document.getElementById('forecastChart').getContext('2d');
       if (forecastChart) forecastChart.destroy();
@@ -242,16 +255,18 @@
         let badgeColor = 'bg-slate-800 text-slate-400 border-slate-700';
         let sentimentText = 'Pending AI Analysis';
 
-        if (article.sentiment_score !== null) {
-          if (article.sentiment_score > 0.1) {
+        // Check for non-null and valid numerical score
+        if (article.sentiment_score !== null && article.sentiment_score !== undefined) {
+          const score = Number(article.sentiment_score);
+          if (score > 0.1) {
             badgeColor = 'bg-emerald-950 text-emerald-400 border-emerald-800';
-            sentimentText = `Bullish (+${article.sentiment_score})`;
-          } else if (article.sentiment_score < -0.1) {
+            sentimentText = `Bullish (+${score.toFixed(2)})`;
+          } else if (score < -0.1) {
             badgeColor = 'bg-rose-950 text-rose-400 border-rose-800';
-            sentimentText = `Bearish (${article.sentiment_score})`;
+            sentimentText = `Bearish (${score.toFixed(2)})`;
           } else {
             badgeColor = 'bg-amber-950 text-amber-400 border-amber-800';
-            sentimentText = `Neutral (${article.sentiment_score})`;
+            sentimentText = `Neutral (${score.toFixed(2)})`;
           }
         }
 
@@ -276,7 +291,9 @@
       });
     }
 
+    // Auto-refresh frontend data every 60 seconds
     loadData();
+    setInterval(loadData, 60000);
   </script>
 </body>
 </html>
