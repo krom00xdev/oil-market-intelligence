@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oil Market Intelligence & AI Analyzer</title>
+  <!-- Tailwind CSS for modern styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+
+  <!-- Header -->
+  <header class="bg-slate-900 border-b border-slate-800 py-6 px-8 shadow-md">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight flex items-center gap-2">
+          🛢️ Oil Market Intelligence Engine
+        </h1>
+        <p class="text-slate-400 text-sm">Real-time multi-source news ingestion & Gemini AI sentiment analysis (Educational Purposes Only)</p>
+      </div>
+      <div id="status-badge" class="bg-emerald-950 text-emerald-400 border border-emerald-800 px-4 py-1.5 rounded-full text-xs font-semibold">
+        ● Live Feed Active
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto p-6 md:p-8 space-y-8">
+
+    <!-- KPI / Sentiment Overview Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Total Articles Tracked</h3>
+        <p id="stat-total" class="text-3xl font-bold mt-2 text-white">-</p>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Average Market Sentiment</h3>
+        <p id="stat-sentiment" class="text-3xl font-bold mt-2 text-slate-300">-</p>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Market Bias Outlook</h3>
+        <p id="stat-bias" class="text-3xl font-bold mt-2 text-amber-400">Neutral</p>
+      </div>
+    </div>
+
+    <!-- News Feed Section -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+        <h2 class="text-lg font-semibold">Live Analyzed News Feed</h2>
+        <button onclick="loadNews()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition">
+          🔄 Refresh
+        </button>
+      </div>
+
+      <div id="news-container" class="divide-y divide-slate-800">
+        <!-- Dynamic News Items Will Be Injected Here -->
+        <div class="p-8 text-center text-slate-500">Loading intelligence feed from Supabase...</div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Frontend Logic -->
+  <script>
+    // REPLACE THESE WITH YOUR ACTUAL SUPABASE CREDENTIALS
+    const SUPABASE_URL = 'https://miecimhjygvllobwwsnb.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN'; // Use your public anon key here
+
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    async function loadNews() {
+      const container = document.getElementById('news-container');
+      container.innerHTML = '<div class="p-8 text-center text-slate-500">Fetching latest market records...</div>';
+
+      const { data: articles, error } = await supabaseClient
+        .from('oil_news')
+        .select('*')
+        .order('published_at', { ascending: false })
+        .limit(30);
+
+      if (error) {
+        container.innerHTML = `<div class="p-8 text-center text-red-400">Error loading data: ${error.message}</div>`;
+        return;
+      }
+
+      if (!articles || articles.length === 0) {
+        container.innerHTML = '<div class="p-8 text-center text-slate-500">No articles found in database yet. Run your GitHub workflow to fetch news!</div>';
+        return;
+      }
+
+      // Update Stats
+      document.getElementById('stat-total').textContent = articles.length;
+      
+      const scoredArticles = articles.filter(a => a.sentiment_score !== null);
+      if (scoredArticles.length > 0) {
+        const avg = scoredArticles.reduce((acc, curr) => acc + curr.sentiment_score, 0) / scoredArticles.length;
+        const sentEl = document.getElementById('stat-sentiment');
+        const biasEl = document.getElementById('stat-bias');
+        
+        sentEl.textContent = avg.toFixed(2);
+        if (avg > 0.1) {
+          sentEl.className = 'text-3xl font-bold mt-2 text-emerald-400';
+          biasEl.textContent = 'Bullish 📈';
+          biasEl.className = 'text-3xl font-bold mt-2 text-emerald-400';
+        } else if (avg < -0.1) {
+          sentEl.className = 'text-3xl font-bold mt-2 text-rose-400';
+          biasEl.textContent = 'Bearish 📉';
+          biasEl.className = 'text-3xl font-bold mt-2 text-rose-400';
+        } else {
+          sentEl.className = 'text-3xl font-bold mt-2 text-amber-400';
+          biasEl.textContent = 'Neutral ⚖️';
+          biasEl.className = 'text-3xl font-bold mt-2 text-amber-400';
+        }
+      }
+
+      // Render Feed
+      container.innerHTML = '';
+      articles.forEach(article => {
+        let badgeColor = 'bg-slate-800 text-slate-400 border-slate-700';
+        let sentimentText = 'Pending AI Analysis';
+
+        if (article.sentiment_score !== null) {
+          if (article.sentiment_score > 0.1) {
+            badgeColor = 'bg-emerald-950 text-emerald-400 border-emerald-800';
+            sentimentText = `Bullish (+${article.sentiment_score})`;
+          } else if (article.sentiment_score < -0.1) {
+            badgeColor = 'bg-rose-950 text-rose-400 border-rose-800';
+            sentimentText = `Bearish (${article.sentiment_score})`;
+          } else {
+            badgeColor = 'bg-amber-950 text-amber-400 border-amber-800';
+            sentimentText = `Neutral (${article.sentiment_score})`;
+          }
+        }
+
+        const dateStr = article.published_at ? new Date(article.published_at).toLocaleString() : '';
+
+        const itemHTML = `
+          <div class="p-6 hover:bg-slate-950/50 transition flex flex-col md:flex-row justify-between items-start gap-4">
+            <div class="space-y-2 flex-1">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="bg-blue-950 text-blue-400 border border-blue-800 px-2 py-0.5 rounded font-medium">${article.category || 'General'}</span>
+                <span class="text-slate-400 font-medium">${article.source || 'Unknown Source'}</span>
+                <span class="text-slate-400">• ${dateStr}</span>
+              </div>
+              <h3 class="text-base font-semibold text-slate-200">
+                <a href="${article.url}" target="_blank" class="hover:text-blue-400 transition">${article.title}</a>
+              </h3>
+              <p class="text-slate-400 text-sm line-clamp-2">${article.description || ''}</p>
+            </div>
+            <div>
+              <span class="inline-block border px-3 py-1 rounded-full text-xs font-semibold ${badgeColor}">
+                ${sentimentText}
+              </span>
+            </div>
+          </div>
+        `;
+        container.innerHTML += itemHTML;
+      });
+    }
+
+    // Load news on page open
+    loadNews();
+  </script>
+</body>
+</html>
