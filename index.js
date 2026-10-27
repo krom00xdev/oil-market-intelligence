@@ -1,8 +1,14 @@
+const WebSocket = require('ws');
 const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+// Initialize Supabase with WebSocket transport for Node.js
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
+  auth: { persistSession: false },
+  realtime: { transport: WebSocket }
+});
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const parser = new Parser();
 
