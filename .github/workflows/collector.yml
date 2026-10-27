@@ -2,7 +2,7 @@ name: Run Oil News & AI Analyzer
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '*/10 * * * *' # Triggers automatically every 10 minutes
   workflow_dispatch:
 
 jobs:
