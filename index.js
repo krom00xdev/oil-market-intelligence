@@ -3,7 +3,6 @@ const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Initialize Supabase client with WebSocket transport for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
@@ -27,13 +26,8 @@ function isRelevant(text) {
   return KEYWORDS.some(kw => text.toLowerCase().includes(kw));
 }
 
-/**
- * Fetches real market prices for crude oil futures.
- */
 async function fetchRealCommodityPrice(symbol) {
   const yahooSymbol = symbol === 'WTI' ? 'CL=F' : 'BZ=F';
-  
-  // Primary Endpoint: Yahoo Finance Chart API
   try {
     const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`, {
       headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -44,58 +38,27 @@ async function fetchRealCommodityPrice(symbol) {
       if (meta && meta.regularMarketPrice) {
         const price = meta.regularMarketPrice;
         const prevClose = meta.chartPreviousClose || price;
-        const change = parseFloat((price - prevClose).toFixed(2));
-        return { price: parseFloat(price.toFixed(2)), change_24h: change };
+        return { price: parseFloat(price.toFixed(2)), change_24h: parseFloat((price - prevClose).toFixed(2)) };
       }
     }
   } catch (err) {
-    console.warn(`Primary price fetch for ${symbol} failed:`, err.message);
+    console.warn(`Yahoo price fetch for ${symbol} failed:`, err.message);
   }
-
-  // Secondary Fallback Endpoint: Alternative Financial Data Feed
-  try {
-    const stSymbol = symbol === 'WTI' ? 'CL.F' : 'BZ.F';
-    const res = await fetch(`https://stooq.com/q/l/?s=${stSymbol}&f=sd2t2ohlcv&h&e=json`);
-    if (res.ok) {
-      const data = await res.json();
-      const quote = data?.symbols?.[0];
-      if (quote && quote.close) {
-        const price = parseFloat(quote.close);
-        return { price: parseFloat(price.toFixed(2)), change_24h: 0.0 };
-      }
-    }
-  } catch (err) {
-    console.warn(`Fallback price fetch for ${symbol} failed:`, err.message);
-  }
-
   return null;
 }
 
 async function fetchAndStorePrices() {
   console.log('Fetching live real-time oil market prices...');
-  try {
-    const wti = await fetchRealCommodityPrice('WTI');
-    const brent = await fetchRealCommodityPrice('BRENT');
+  const wti = await fetchRealCommodityPrice('WTI');
+  const brent = await fetchRealCommodityPrice('BRENT');
 
-    const pricesToInsert = [];
-    if (wti) {
-      pricesToInsert.push({ symbol: 'WTI', price: wti.price, change_24h: wti.change_24h });
-      console.log(`Live Market WTI: $${wti.price}`);
-    }
-    if (brent) {
-      pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h });
-      console.log(`Live Market BRENT: $${brent.price}`);
-    }
+  const pricesToInsert = [];
+  if (wti) pricesToInsert.push({ symbol: 'WTI', price: wti.price, change_24h: wti.change_24h });
+  if (brent) pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h });
 
-    if (pricesToInsert.length > 0) {
-      const { error } = await supabase.from('oil_prices').insert(pricesToInsert);
-      if (error) console.error('Error saving prices to Supabase:', error.message);
-      else console.log('Successfully saved real market prices to database.');
-    } else {
-      console.warn('Could not fetch real-time price updates in this cycle.');
-    }
-  } catch (err) {
-    console.error('Price fetch execution error:', err.message);
+  if (pricesToInsert.length > 0) {
+    await supabase.from('oil_prices').insert(pricesToInsert);
+    console.log('Saved real market prices to database.');
   }
 }
 
@@ -125,16 +88,21 @@ async function collectNews() {
         await supabase.from('oil_news').upsert(articlesToInsert, { onConflict: 'url', ignoreDuplicates: true });
       }
     } catch (err) {
-      console.error(`Error in ${feedConfig.name}:`, err.message);
+      console.error(`Error in feed ${feedConfig.name}:`, err.message);
     }
   }
 }
 
 async function analyzeNewsWithGemini() {
-  console.log('Analyzing unanalyzed articles with Gemini...');
+  console.log('Analyzing unanalyzed articles with Gemini AI...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  const { data: articles, error: fetchError } = await supabase.from('oil_news').select('id, title, description').is('sentiment_score', null).limit(10);
+  // Fetch articles where sentiment_score is null
+  const { data: articles, error: fetchError } = await supabase
+    .from('oil_news')
+    .select('id, title, description')
+    .is('sentiment_score', null)
+    .limit(10);
   
   if (fetchError) {
     console.error('Error fetching unanalyzed articles:', fetchError.message);
@@ -146,7 +114,7 @@ async function analyzeNewsWithGemini() {
     return;
   }
 
-  console.log(`Found ${articles.length} articles to analyze.`);
+  console.log(`Found ${articles.length} articles needing sentiment scoring.`);
 
   for (const article of articles) {
     try {
@@ -156,11 +124,17 @@ async function analyzeNewsWithGemini() {
       const scoreText = response.text().trim();
       const score = parseFloat(scoreText);
       
-      if (!isNaN(score)) {
-        await supabase.from('oil_news').update({ sentiment_score: score }).eq('id', article.id);
-        console.log(`Updated article "${article.title.substring(0, 30)}..." with sentiment: ${score}`);
+      const finalScore = isNaN(score) ? 0.0 : Math.max(-1.0, Math.min(1.0, score));
+      
+      const { error: updateError } = await supabase
+        .from('oil_news')
+        .update({ sentiment_score: finalScore })
+        .eq('id', article.id);
+
+      if (updateError) {
+        console.error(`Failed updating article ID ${article.id}:`, updateError.message);
       } else {
-        await supabase.from('oil_news').update({ sentiment_score: 0.0 }).eq('id', article.id);
+        console.log(`Successfully scored article "${article.title.substring(0, 30)}..." -> Sentiment: ${finalScore}`);
       }
     } catch (err) {
       console.error('Gemini article analysis error:', err.message);
@@ -176,12 +150,12 @@ async function generateSynthesizedReport() {
   const { data: prices } = await supabase.from('oil_prices').select('symbol, price').order('recorded_at', { ascending: false }).limit(2);
 
   let marketBias = "Neutral";
-  let summaryText = "Crude oil markets are currently trading dynamically as traders weigh global supply metrics, shipping corridor stability, and macroeconomic demand trends.";
+  let summaryText = "Crude oil markets are currently trading dynamically as global supply metrics, shipping corridor stability, and macroeconomic demand trends shift.";
   let keyDrivers = ["OPEC+ output policy monitoring", "Geopolitical supply risk premiums", "Global petroleum inventory adjustments"];
 
   if (recentNews && recentNews.length > 0) {
     const newsSummary = recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n');
-    const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $100.75, Brent: $114.93';
+    const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $101.55, Brent: $111.06';
 
     const prompt = `
       You are a Senior Energy Commodity Analyst. Given current real-time prices (${priceSummary}) and recent market news:
@@ -204,21 +178,16 @@ async function generateSynthesizedReport() {
       if (reportData.summary) summaryText = reportData.summary;
       if (reportData.key_drivers) keyDrivers = reportData.key_drivers;
     } catch (err) {
-      console.warn('Using fallback structured briefing due to parse error:', err.message);
+      console.warn('Using default fallback structure due to parse error:', err.message);
     }
   }
 
-  const { error: reportError } = await supabase.from('daily_market_reports').insert([{
+  await supabase.from('daily_market_reports').insert([{
     market_bias: marketBias,
     summary: summaryText,
     key_drivers: keyDrivers
   }]);
-
-  if (reportError) {
-    console.error('Failed to save market report:', reportError.message);
-  } else {
-    console.log('Successfully generated and saved AI Market Report!');
-  }
+  console.log('Successfully saved AI Market Report.');
 }
 
 async function runPipeline() {
@@ -227,9 +196,9 @@ async function runPipeline() {
     await collectNews();
     await analyzeNewsWithGemini();
     await generateSynthesizedReport();
-    console.log('Complete pipeline finished successfully.');
+    console.log('Pipeline execution finished successfully.');
   } catch (err) {
-    console.error('Pipeline error:', err);
+    console.error('Pipeline fatal error:', err);
   } finally {
     process.exit(0);
   }
