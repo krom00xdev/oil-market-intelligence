@@ -108,10 +108,10 @@ async function analyzeNewsWithGemini() {
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const { data: articles, error: fetchError } = await supabase
-    .from('oil_news')
-    .select('id, title, description')
-    .is('sentiment_score', null)
-    .limit(10);
+  .from('oil_news')
+  .select('id, title, description')
+  .is('sentiment_score', null)
+  .limit(50);
   
   if (fetchError) {
     console.error('Error fetching unanalyzed articles:', fetchError.message);
