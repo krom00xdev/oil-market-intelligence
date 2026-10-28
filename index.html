@@ -143,7 +143,7 @@
         }
       }
 
-      // 3. Render Forecast Chart
+      // 3. Render Forecast Chart directly from live DB records
       await renderForecastChart(currentSelectedSymbol);
 
       // 4. Fetch News
@@ -166,6 +166,7 @@
     }
 
     async function renderForecastChart(symbol) {
+      // Query database for latest forecasts
       const { data: forecasts } = await supabaseClient
         .from('price_forecasts')
         .select('*')
@@ -173,12 +174,16 @@
         .order('target_date', { ascending: true })
         .limit(5);
 
-      if (!forecasts || forecasts.length === 0) return;
+      if (!forecasts || forecasts.length === 0) {
+        console.warn('No active forecasts found in Supabase for symbol:', symbol);
+        return;
+      }
 
+      // Dynamically extract real forecast data and dates
       const labels = forecasts.map(f => f.target_date);
-      const predictedData = forecasts.map(f => f.predicted_price);
-      const upperData = forecasts.map(f => f.upper_bound);
-      const lowerData = forecasts.map(f => f.lower_bound);
+      const predictedData = forecasts.map(f => Number(f.predicted_price));
+      const upperData = forecasts.map(f => Number(f.upper_bound));
+      const lowerData = forecasts.map(f => Number(f.lower_bound));
 
       const ctx = document.getElementById('forecastChart').getContext('2d');
       if (forecastChart) forecastChart.destroy();
@@ -218,7 +223,11 @@
           plugins: { legend: { labels: { color: '#94a3b8' } } },
           scales: {
             x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
-            y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+            y: { 
+              ticks: { color: '#94a3b8' }, 
+              grid: { color: '#1e293b' },
+              beginAtZero: false // Forces y-axis scale to anchor tightly to actual price values
+            }
           }
         }
       });
@@ -232,7 +241,6 @@
     }
 
     function filterCategory(cat, btnElement) {
-      // Update active button state
       document.querySelectorAll('.cat-btn').forEach(btn => {
         btn.className = 'cat-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg';
       });
