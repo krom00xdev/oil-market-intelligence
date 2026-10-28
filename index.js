@@ -38,7 +38,17 @@ async function fetchRealCommodityPrice(symbol) {
       if (meta && meta.regularMarketPrice) {
         const price = meta.regularMarketPrice;
         const prevClose = meta.chartPreviousClose || price;
-        return { price: parseFloat(price.toFixed(2)), change_24h: parseFloat((price - prevClose).toFixed(2)) };
+        
+        // Extract intraday high and low from chart metadata (with fallbacks if undefined)
+        const dayLow = meta.regularMarketDayLow || price * 0.99;
+        const dayHigh = meta.regularMarketDayHigh || price * 1.01;
+
+        return {
+          price: parseFloat(price.toFixed(2)),
+          change_24h: parseFloat((price - prevClose).toFixed(2)),
+          day_low: parseFloat(dayLow.toFixed(2)),
+          day_high: parseFloat(dayHigh.toFixed(2))
+        };
       }
     }
   } catch (err) {
@@ -48,17 +58,17 @@ async function fetchRealCommodityPrice(symbol) {
 }
 
 async function fetchAndStorePrices() {
-  console.log('Fetching live real-time oil market prices...');
+  console.log('Fetching live real-time oil market prices & daily ranges...');
   const wti = await fetchRealCommodityPrice('WTI');
   const brent = await fetchRealCommodityPrice('BRENT');
 
   const pricesToInsert = [];
-  if (wti) pricesToInsert.push({ symbol: 'WTI', price: wti.price, change_24h: wti.change_24h });
-  if (brent) pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h });
+  if (wti) pricesToInsert.push({ symbol: 'WTI', price: wti.price, change_24h: wti.change_24h, day_low: wti.day_low, day_high: wti.day_high });
+  if (brent) pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h, day_low: brent.day_low, day_high: brent.day_high });
 
   if (pricesToInsert.length > 0) {
     await supabase.from('oil_prices').insert(pricesToInsert);
-    console.log('Saved real market prices to database.');
+    console.log('Saved real market prices and ranges to database.');
   }
 }
 
@@ -133,14 +143,14 @@ async function generateSynthesizedReport() {
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const { data: recentNews } = await supabase.from('oil_news').select('title, sentiment_score, category').not('sentiment_score', 'is', null).order('published_at', { ascending: false }).limit(15);
-  const { data: prices } = await supabase.from('oil_prices').select('symbol, price').order('recorded_at', { ascending: false }).limit(2);
+  const { data: prices } = await supabase.from('oil_prices').select('symbol, price, day_low, day_high').order('recorded_at', { ascending: false }).limit(2);
 
-  const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $101.67, Brent: $111.33';
+  const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price} (Low: $${p.day_low}, High: $${p.day_high})`).join(', ') : 'WTI, Brent active ranges.';
   const newsSummary = recentNews ? recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n') : 'Active geopolitical catalysts.';
 
   const prompt = `
     You are the Chief Global Energy Economist at a premier macroeconomic institution. 
-    Analyze the current live benchmark prices (${priceSummary}) and the real-time news sentiment below. 
+    Analyze the current live benchmark prices and daily ranges (${priceSummary}) along with the real-time news sentiment below. 
 
     Recent Market News & Sentiment:
     ${newsSummary}
