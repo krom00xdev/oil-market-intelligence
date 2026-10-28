@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const { createClient } = require('@supabase/supabase-js');
 
+// Initialize Supabase with WebSocket support for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
@@ -12,15 +13,15 @@ async function generateForecasts() {
   try {
     for (const symbol of ['WTI', 'BRENT']) {
       // 1. Fetch the absolute latest live market price from Supabase
-      const { data: latestPrice } = await supabase
+      const { data: latestPrice, error: priceError } = await supabase
         .from('oil_prices')
         .select('price')
         .eq('symbol', symbol)
         .order('recorded_at', { ascending: false })
         .limit(1);
 
-      if (!latestPrice || latestPrice.length === 0) {
-        console.log(`No active price record found for ${symbol}.`);
+      if (priceError || !latestPrice || latestPrice.length === 0) {
+        console.log(`No active price record found for ${symbol}:`, priceError?.message || 'No data');
         continue;
       }
 
@@ -46,28 +47,28 @@ async function generateForecasts() {
       const forecastsToInsert = [];
       let rollingPrice = baselinePrice;
 
-      // 3. Generate 5 distinct future days sequentially
+      // 3. Generate 5 distinct future days sequentially (Day +1 to Day +5)
       for (let day = 1; day <= 5; day++) {
         rollingPrice += momentumFactor + (Math.sin(day * 0.8) * 0.40);
         
         const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() + day); // Ensures distinct future dates (+1 to +5 days)
+        targetDate.setDate(targetDate.getDate() + day); // Distinct future calendar date
 
         forecastsToInsert.push({
           symbol: symbol,
-          target_date: targetDate.toISOString().split('T')[0],
+          target_date: targetDate.toISOString().split('T')[0], // e.g. YYYY-MM-DD
           predicted_price: parseFloat(rollingPrice.toFixed(2)),
           lower_bound: parseFloat((rollingPrice * 0.982).toFixed(2)),
           upper_bound: parseFloat((rollingPrice * 1.018).toFixed(2))
         });
       }
 
-      // 4. Clean old entries and save precise trajectory
+      // 4. Clean old entries for this symbol and save precise trajectory
       await supabase.from('price_forecasts').delete().eq('symbol', symbol);
-      const { error } = await supabase.from('price_forecasts').insert(forecastsToInsert);
+      const { error: insertError } = await supabase.from('price_forecasts').insert(forecastsToInsert);
       
-      if (error) {
-        console.error(`Error saving ${symbol} forecasts:`, error.message);
+      if (insertError) {
+        console.error(`Error saving ${symbol} forecasts:`, insertError.message);
       } else {
         console.log(`Successfully published precise 5-day forward outlook for ${symbol}`);
       }
