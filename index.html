@@ -32,15 +32,31 @@
 
     <!-- Prices & Overview Row -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">WTI Crude</h3>
-        <p id="price-wti" class="text-3xl font-bold mt-2 text-white">$ --.--</p>
+      <!-- WTI Crude Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">WTI Crude</h3>
+          <p id="price-wti" class="text-3xl font-bold mt-2 text-white">$ --.--</p>
+        </div>
+        <div id="range-wti" class="text-xs text-slate-400 mt-4 pt-2 border-t border-slate-800 flex justify-between">
+          <span>Low: <strong class="text-slate-200">$--.--</strong></span>
+          <span>High: <strong class="text-slate-200">$--.--</strong></span>
+        </div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Brent Crude</h3>
-        <p id="price-brent" class="text-3xl font-bold mt-2 text-white">$ --.--</p>
+
+      <!-- Brent Crude Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Brent Crude</h3>
+          <p id="price-brent" class="text-3xl font-bold mt-2 text-white">$ --.--</p>
+        </div>
+        <div id="range-brent" class="text-xs text-slate-400 mt-4 pt-2 border-t border-slate-800 flex justify-between">
+          <span>Low: <strong class="text-slate-200">$--.--</strong></span>
+          <span>High: <strong class="text-slate-200">$--.--</strong></span>
+        </div>
       </div>
       
+      <!-- Sentiment Card -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
         <div>
           <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Average News Sentiment</h3>
@@ -51,9 +67,13 @@
         </p>
       </div>
 
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
-        <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Market Outlook Bias</h3>
-        <p id="stat-bias" class="text-3xl font-bold mt-2 text-amber-400">Neutral</p>
+      <!-- Market Outlook Bias Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <h3 class="text-slate-400 text-xs font-medium uppercase tracking-wider">Market Outlook Bias</h3>
+          <p id="stat-bias" class="text-3xl font-bold mt-2 text-amber-400">Neutral</p>
+        </div>
+        <div class="text-[11px] text-transparent select-none mt-3 pt-2 border-t border-transparent">Spacing filler</div>
       </div>
     </div>
 
@@ -118,12 +138,22 @@
     let currentSelectedSymbol = 'WTI';
 
     async function loadData() {
-      // 1. Fetch Prices
+      // 1. Fetch Prices & Ranges
       const { data: prices } = await supabaseClient.from('oil_prices').select('*').order('recorded_at', { ascending: false }).limit(2);
       if (prices && prices.length > 0) {
         prices.forEach(p => {
-          if (p.symbol === 'WTI') document.getElementById('price-wti').textContent = `$${p.price.toFixed(2)}`;
-          if (p.symbol === 'BRENT') document.getElementById('price-brent').textContent = `$${p.price.toFixed(2)}`;
+          if (p.symbol === 'WTI') {
+            document.getElementById('price-wti').textContent = `$${p.price.toFixed(2)}`;
+            const low = p.day_low !== null && p.day_low !== undefined ? `$${p.day_low.toFixed(2)}` : 'N/A';
+            const high = p.day_high !== null && p.day_high !== undefined ? `$${p.day_high.toFixed(2)}` : 'N/A';
+            document.getElementById('range-wti').innerHTML = `<span>Low: <strong class="text-slate-200">${low}</strong></span><span>High: <strong class="text-slate-200">${high}</strong></span>`;
+          }
+          if (p.symbol === 'BRENT') {
+            document.getElementById('price-brent').textContent = `$${p.price.toFixed(2)}`;
+            const low = p.day_low !== null && p.day_low !== undefined ? `$${p.day_low.toFixed(2)}` : 'N/A';
+            const high = p.day_high !== null && p.day_high !== undefined ? `$${p.day_high.toFixed(2)}` : 'N/A';
+            document.getElementById('range-brent').innerHTML = `<span>Low: <strong class="text-slate-200">${low}</strong></span><span>High: <strong class="text-slate-200">${high}</strong></span>`;
+          }
         });
       }
 
@@ -143,7 +173,7 @@
         }
       }
 
-      // 3. Render Forecast Chart directly from live DB records
+      // 3. Render Forecast Chart
       await renderForecastChart(currentSelectedSymbol);
 
       // 4. Fetch News
@@ -166,7 +196,6 @@
     }
 
     async function renderForecastChart(symbol) {
-      // Query database for latest forecasts
       const { data: forecasts } = await supabaseClient
         .from('price_forecasts')
         .select('*')
@@ -174,12 +203,8 @@
         .order('target_date', { ascending: true })
         .limit(5);
 
-      if (!forecasts || forecasts.length === 0) {
-        console.warn('No active forecasts found in Supabase for symbol:', symbol);
-        return;
-      }
+      if (!forecasts || forecasts.length === 0) return;
 
-      // Dynamically extract real forecast data and dates
       const labels = forecasts.map(f => f.target_date);
       const predictedData = forecasts.map(f => Number(f.predicted_price));
       const upperData = forecasts.map(f => Number(f.upper_bound));
@@ -223,11 +248,7 @@
           plugins: { legend: { labels: { color: '#94a3b8' } } },
           scales: {
             x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
-            y: { 
-              ticks: { color: '#94a3b8' }, 
-              grid: { color: '#1e293b' },
-              beginAtZero: false // Forces y-axis scale to anchor tightly to actual price values
-            }
+            y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, beginAtZero: false }
           }
         }
       });
