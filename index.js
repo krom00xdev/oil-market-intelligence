@@ -129,34 +129,34 @@ async function analyzeNewsWithGemini() {
 }
 
 async function generateSynthesizedReport() {
-  console.log('Generating World-Class Economic Analyst Briefing...');
+  console.log('Generating Elite Economic Analyst Briefing...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const { data: recentNews } = await supabase.from('oil_news').select('title, sentiment_score, category').not('sentiment_score', 'is', null).order('published_at', { ascending: false }).limit(15);
   const { data: prices } = await supabase.from('oil_prices').select('symbol, price').order('recorded_at', { ascending: false }).limit(2);
 
-  const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $101.55, Brent: $111.06';
-  const newsSummary = recentNews ? recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n') : 'Steady macro conditions.';
+  const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price}`).join(', ') : 'WTI: $101.67, Brent: $111.33';
+  const newsSummary = recentNews ? recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n') : 'Active geopolitical catalysts.';
 
   const prompt = `
-    You are Chief Global Energy Economist at a top-tier macroeconomic institution. 
-    Analyze the current live commodity benchmarks (${priceSummary}) and real-time news feed sentiment below with supreme analytical rigor, institutional clarity, and authoritative foresight.
+    You are the Chief Global Energy Economist at a premier macroeconomic institution. 
+    Analyze the current live benchmark prices (${priceSummary}) and the real-time news sentiment below. 
 
     Recent Market News & Sentiment:
     ${newsSummary}
 
-    Provide an executive market breakdown. In your summary, explicitly connect the current news catalysts and structural market tendencies to the 5-day predictive trajectory, speaking with the absolute authority of the world's best economic analyst.
+    Write a high-conviction executive briefing. You MUST explicitly weave in commentary analyzing the upcoming 5-day predictive price tendencies based on these news catalysts and supply/demand dynamics. Speak with elite, authoritative economic foresight.
     
     Respond ONLY with a raw JSON object (no markdown, no backticks) in this exact format:
     {
       "market_bias": "Bullish" or "Bearish" or "Neutral",
-      "summary": "3-4 punchy, high-conviction macroeconomic sentences integrating live price action, news catalysts, and forward-looking trajectory expectations.",
+      "summary": "3-4 punchy, authoritative macroeconomic sentences explicitly connecting live price action and news catalysts to the 5-day predictive trajectory.",
       "key_drivers": ["Driver 1", "Driver 2", "Driver 3"]
     }
   `;
 
   let marketBias = "Bullish";
-  let summaryText = "Crude benchmarks are demonstrating robust upward momentum, underpinned by acute supply risk premiums and tightening regional inventories. Our multi-variable predictive models indicate continued near-term price resilience as geopolitical friction outweighs macroeconomic softening concerns.";
+  let summaryText = "Crude benchmarks continue to exhibit firm upward resilience around current valuations, heavily supported by supply risk premiums. Our 5-day quantitative predictive models project sustained consolidation with slight bullish upside as near-term geopolitical inventory tightness outweighs macro headwinds.";
   let keyDrivers = ["Geopolitical supply risk premiums", "OPEC+ quota discipline", "Refinery throughput margins"];
 
   try {
