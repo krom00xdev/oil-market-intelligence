@@ -63,7 +63,7 @@
           <p id="stat-sentiment" class="text-3xl font-bold mt-2 text-slate-300">-</p>
         </div>
         <p class="text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-800/80 leading-tight">
-          ℹ️ Scale ranges from <strong class="text-emerald-400">+1.0</strong> (Bullish/Price Up) to <strong class="text-rose-400">-1.0</strong> (Bearish/Price Down).
+          ℹ️ Scale ranges from <strong class="text-emerald-400">+1.0</strong> (Bullish) to <strong class="text-rose-400">-1.0</strong> (Bearish).
         </p>
       </div>
 
@@ -104,6 +104,47 @@
       </div>
       <div class="w-full h-72">
         <canvas id="forecastChart"></canvas>
+      </div>
+    </section>
+
+    <!-- AI Trade Signals & Experimental Track Record -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm space-y-6">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+        <div>
+          <h2 class="text-lg font-bold text-slate-100 flex items-center gap-2">🎯 AI Experimental Trade Signals & Execution Log</h2>
+          <p class="text-slate-400 text-xs">Algorithmic limit orders, risk parameters, and historical success/failure tracking</p>
+        </div>
+        <div class="bg-indigo-950 text-indigo-400 border border-indigo-800 px-3 py-1 rounded-full text-xs font-semibold">
+          Experimental Track Record Active
+        </div>
+      </div>
+
+      <!-- Active Signals Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="trade-signals-container">
+        <div class="p-4 rounded-lg bg-slate-950/50 border border-slate-800 text-slate-400 text-sm text-center">Loading active AI trade setups...</div>
+      </div>
+
+      <!-- Historical Performance Log Table -->
+      <div class="overflow-x-auto pt-4 border-t border-slate-800">
+        <h3 class="text-sm font-semibold text-slate-300 mb-3">📊 Historical Execution Log & Success Metrics</h3>
+        <table class="w-full text-left text-xs text-slate-300">
+          <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider border-b border-slate-800">
+            <tr>
+              <th class="p-3">Date</th>
+              <th class="p-3">Symbol</th>
+              <th class="p-3">Action</th>
+              <th class="p-3">Entry ($)</th>
+              <th class="p-3">Stop Loss ($)</th>
+              <th class="p-3">Take Profit ($)</th>
+              <th class="p-3">Status</th>
+            </tr>
+          </thead>
+          <tbody id="trade-history-container" class="divide-y divide-slate-800/60">
+            <tr>
+              <td colspan="7" class="p-4 text-center text-slate-500">Loading historical log...</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -173,8 +214,9 @@
         }
       }
 
-      // 3. Render Forecast Chart
+      // 3. Render Forecast Chart & Trade Signals
       await renderForecastChart(currentSelectedSymbol);
+      await loadTradeSignals();
 
       // 4. Fetch News & Calculate Average Sentiment
       const { data: articles } = await supabaseClient.from('oil_news').select('*').order('published_at', { ascending: false }).limit(50);
@@ -195,6 +237,74 @@
 
         renderNews(allArticles);
       }
+    }
+
+    async function loadTradeSignals() {
+      const { data: signals, error } = await supabaseClient
+        .from('trade_signals')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error || !signals || signals.length === 0) {
+        document.getElementById('trade-signals-container').innerHTML = '<div class="p-4 text-slate-500 text-sm">No active trade setups available yet. Run workflow to generate.</div>';
+        document.getElementById('trade-history-container').innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500">No historical records found.</td></tr>';
+        return;
+      }
+
+      const signalsContainer = document.getElementById('trade-signals-container');
+      signalsContainer.innerHTML = '';
+      
+      signals.slice(0, 2).forEach(s => {
+        const badgeColor = s.action.includes('BUY') ? 'bg-emerald-950 text-emerald-400 border-emerald-800' : 'bg-rose-950 text-rose-400 border-rose-800';
+        signalsContainer.innerHTML += `
+          <div class="bg-slate-950/70 border border-slate-800 rounded-lg p-4 space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="font-bold text-base text-white">${s.symbol} Setup</span>
+              <span class="border px-2.5 py-0.5 rounded text-xs font-semibold ${badgeColor}">${s.action}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center bg-slate-900/60 p-2.5 rounded border border-slate-800/80">
+              <div>
+                <span class="text-[10px] text-slate-400 block uppercase">Entry Limit</span>
+                <strong class="text-slate-100 text-sm">$${s.entry_price}</strong>
+              </div>
+              <div>
+                <span class="text-[10px] text-slate-400 block uppercase">Stop Loss</span>
+                <strong class="text-rose-400 text-sm">$${s.stop_loss}</strong>
+              </div>
+              <div>
+                <span class="text-[10px] text-slate-400 block uppercase">Take Profit</span>
+                <strong class="text-emerald-400 text-sm">$${s.take_profit}</strong>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 italic">"${s.reasoning || 'AI quantitative macro momentum setup.'}"</p>
+            <div class="text-[11px] text-slate-400 flex justify-between pt-1 border-t border-slate-800/60">
+              <span>Target Date: ${s.target_date}</span>
+              <span class="font-semibold text-amber-400 uppercase">Status: ${s.status}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      const historyContainer = document.getElementById('trade-history-container');
+      historyContainer.innerHTML = '';
+      
+      signals.forEach(s => {
+        let statusBadge = 'bg-amber-950 text-amber-400 border-amber-800';
+        if (s.status === 'SUCCESS') statusBadge = 'bg-emerald-950 text-emerald-400 border-emerald-800';
+        if (s.status === 'FAILED') statusBadge = 'bg-rose-950 text-rose-400 border-rose-800';
+
+        historyContainer.innerHTML += `
+          <tr class="hover:bg-slate-900/45 transition">
+            <td class="p-3 text-slate-400">${s.target_date}</td>
+            <td class="p-3 font-semibold text-white">${s.symbol}</td>
+            <td class="p-3"><span class="font-medium ${s.action.includes('BUY') ? 'text-emerald-400' : 'text-rose-400'}">${s.action}</span></td>
+            <td class="p-3">$${s.entry_price}</td>
+            <td class="p-3 text-rose-300">$${s.stop_loss}</td>
+            <td class="p-3 text-emerald-300">$${s.take_profit}</td>
+            <td class="p-3"><span class="border px-2 py-0.5 rounded text-[10px] font-semibold ${statusBadge}">${s.status}</span></td>
+          </tr>
+        `;
+      });
     }
 
     async function renderForecastChart(symbol) {
