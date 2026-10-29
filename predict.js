@@ -48,8 +48,8 @@ async function generateForecasts() {
         rollingPrice += momentumFactor + (Math.sin(day * 0.8) * 0.35);
         
         const targetDate = new Date();
-        targetDate.setUTCDate(targetDate.getUTCDate() + day); // Clean UTC day increment
-        const formattedDate = targetDate.toISOString().split('T')[0]; // Guarantees unique YYYY-MM-DD
+        targetDate.setUTCDate(targetDate.getUTCDate() + day);
+        const formattedDate = targetDate.toISOString().split('T')[0];
 
         forecastsToInsert.push({
           symbol: symbol,
