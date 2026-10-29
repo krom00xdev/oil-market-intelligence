@@ -3,7 +3,6 @@ const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Initialize Supabase client with WebSocket transport for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
@@ -12,15 +11,14 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const parser = new Parser();
 
-// Expanded multi-source feed directory including institutional macroeconomic platforms
 const FEEDS = [
   { category: 'Financial & Commodity', name: 'OilPrice.com', url: 'https://oilprice.com/rss/main' },
   { category: 'Financial & Commodity', name: 'CNBC Energy', url: 'https://search.cnbc.com/rs/search/combinednews/rss?partnerId=wrnt&keywords=oil' },
   { category: 'OPEC & Production', name: 'OPEC News', url: 'https://www.opec.org/opec_web/en/press_room/28.rss' },
   { category: 'Geopolitical & Politics', name: 'Reuters World News', url: 'https://www.reutersagency.com/feed/?best-topics=world-news&post_type=best' },
   { category: 'Technology & Transition', name: 'CleanTechnica', url: 'https://cleantechnica.com/feed/' },
-  { category: 'Financial & Commodity', name: 'FXStreet Global Energy', url: 'https://www.fxstreet.com/rss/news' },
-  { category: 'Financial & Commodity', name: 'Trading Economics', url: 'https://tradingeconomics.com/rss/' }
+  { category: 'Financial & Commodity', name: 'FXStreet News', url: 'https://xml.fxstreet.com/news/forex-news/index.xml' },
+  { category: 'Financial & Commodity', name: 'ForexLive Investing', url: 'https://investinglive.com/rss/' }
 ];
 
 const KEYWORDS = ['oil', 'crude', 'brent', 'wti', 'opec', 'petroleum', 'gasoline', 'energy', 'barrel', 'sanctions', 'refinery', 'drill', 'saudi', 'middle east', 'suez', 'strait of hormuz', 'pipeline', 'ev', 'renewables', 'fed', 'inflation', 'gdp'];
@@ -30,9 +28,6 @@ function isRelevant(text) {
   return KEYWORDS.some(kw => text.toLowerCase().includes(kw));
 }
 
-/**
- * Fetches real market prices and intraday low/high ranges for crude oil futures.
- */
 async function fetchRealCommodityPrice(symbol) {
   const yahooSymbol = symbol === 'WTI' ? 'CL=F' : 'BZ=F';
   try {
@@ -113,7 +108,6 @@ async function analyzeNewsWithGemini() {
   console.log('Analyzing unanalyzed articles with Gemini AI...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  // Increased batch size to 50 to rapidly clear news backlog
   const { data: articles, error: fetchError } = await supabase
     .from('oil_news')
     .select('id, title, description')
