@@ -33,7 +33,10 @@ async function generateForecasts() {
 
       let avgSentiment = 0.0;
       if (news && news.length > 0) {
-        avgSentiment = news.reduce((acc, curr) => acc + Number(curr.sentiment_score), 0) / news.length;
+        const validNews = news.filter(n => n.sentiment_score !== null && !isNaN(Number(n.sentiment_score)));
+        if (validNews.length > 0) {
+          avgSentiment = validNews.reduce((acc, curr) => acc + Number(curr.sentiment_score), 0) / validNews.length;
+        }
       }
 
       const momentumFactor = avgSentiment * 0.85;
@@ -44,9 +47,14 @@ async function generateForecasts() {
       for (let day = 1; day <= 5; day++) {
         rollingPrice += momentumFactor + (Math.sin(day * 0.8) * 0.35);
         
+        // Generate distinct tomorrow, day-after-tomorrow, etc.
         const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() + day); // Explicitly increments target date by +1..+5 days
-        const formattedDate = targetDate.toISOString().split('T')[0];
+        targetDate.setDate(targetDate.getDate() + day);
+        
+        const year = targetDate.getFullYear();
+        const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const dateStr = String(targetDate.getDate()).padStart(2, '0');
+        const formattedDate = `${year}-${month}-${dateStr}`;
 
         forecastsToInsert.push({
           symbol: symbol,
@@ -59,8 +67,13 @@ async function generateForecasts() {
 
       // 4. Purge old rows for symbol and save new projection horizon
       await supabase.from('price_forecasts').delete().eq('symbol', symbol);
-      await supabase.from('price_forecasts').insert(forecastsToInsert);
-      console.log(`Successfully published 5-day trajectory for ${symbol}`);
+      const { error } = await supabase.from('price_forecasts').insert(forecastsToInsert);
+      
+      if (error) {
+        console.error(`Error saving ${symbol} forecasts:`, error.message);
+      } else {
+        console.log(`Successfully published 5-day trajectory for ${symbol}:`, forecastsToInsert.map(f => f.target_date));
+      }
     }
   } catch (err) {
     console.error('Predictive engine error:', err);
