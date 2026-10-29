@@ -3,6 +3,7 @@ const { createClient } = require('@supabase/supabase-js');
 const Parser = require('rss-parser');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// Initialize Supabase client with WebSocket transport for Node.js
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: WebSocket }
@@ -11,21 +12,27 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const parser = new Parser();
 
+// Expanded multi-source feed directory including institutional macroeconomic platforms
 const FEEDS = [
   { category: 'Financial & Commodity', name: 'OilPrice.com', url: 'https://oilprice.com/rss/main' },
   { category: 'Financial & Commodity', name: 'CNBC Energy', url: 'https://search.cnbc.com/rs/search/combinednews/rss?partnerId=wrnt&keywords=oil' },
   { category: 'OPEC & Production', name: 'OPEC News', url: 'https://www.opec.org/opec_web/en/press_room/28.rss' },
   { category: 'Geopolitical & Politics', name: 'Reuters World News', url: 'https://www.reutersagency.com/feed/?best-topics=world-news&post_type=best' },
-  { category: 'Technology & Transition', name: 'CleanTechnica', url: 'https://cleantechnica.com/feed/' }
+  { category: 'Technology & Transition', name: 'CleanTechnica', url: 'https://cleantechnica.com/feed/' },
+  { category: 'Financial & Commodity', name: 'FXStreet Global Energy', url: 'https://www.fxstreet.com/rss/news' },
+  { category: 'Financial & Commodity', name: 'Trading Economics', url: 'https://tradingeconomics.com/rss/' }
 ];
 
-const KEYWORDS = ['oil', 'crude', 'brent', 'wti', 'opec', 'petroleum', 'gasoline', 'energy', 'barrel', 'sanctions', 'refinery', 'drill', 'saudi', 'middle east', 'suez', 'strait of hormuz', 'pipeline', 'ev', 'renewables'];
+const KEYWORDS = ['oil', 'crude', 'brent', 'wti', 'opec', 'petroleum', 'gasoline', 'energy', 'barrel', 'sanctions', 'refinery', 'drill', 'saudi', 'middle east', 'suez', 'strait of hormuz', 'pipeline', 'ev', 'renewables', 'fed', 'inflation', 'gdp'];
 
 function isRelevant(text) {
   if (!text) return false;
   return KEYWORDS.some(kw => text.toLowerCase().includes(kw));
 }
 
+/**
+ * Fetches real market prices and intraday low/high ranges for crude oil futures.
+ */
 async function fetchRealCommodityPrice(symbol) {
   const yahooSymbol = symbol === 'WTI' ? 'CL=F' : 'BZ=F';
   try {
@@ -38,8 +45,6 @@ async function fetchRealCommodityPrice(symbol) {
       if (meta && meta.regularMarketPrice) {
         const price = meta.regularMarketPrice;
         const prevClose = meta.chartPreviousClose || price;
-        
-        // Extract intraday high and low from chart metadata (with fallbacks if undefined)
         const dayLow = meta.regularMarketDayLow || price * 0.99;
         const dayHigh = meta.regularMarketDayHigh || price * 1.01;
 
@@ -67,13 +72,14 @@ async function fetchAndStorePrices() {
   if (brent) pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h, day_low: brent.day_low, day_high: brent.day_high });
 
   if (pricesToInsert.length > 0) {
-    await supabase.from('oil_prices').insert(pricesToInsert);
-    console.log('Saved real market prices and ranges to database.');
+    const { error } = await supabase.from('oil_prices').insert(pricesToInsert);
+    if (error) console.error('Error saving prices:', error.message);
+    else console.log('Saved real market prices and ranges to database.');
   }
 }
 
 async function collectNews() {
-  console.log('Collecting oil market news...');
+  console.log('Collecting multi-source energy and macroeconomic news...');
   for (const feedConfig of FEEDS) {
     try {
       const feed = await parser.parseURL(feedConfig.url);
@@ -107,11 +113,12 @@ async function analyzeNewsWithGemini() {
   console.log('Analyzing unanalyzed articles with Gemini AI...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
+  // Increased batch size to 50 to rapidly clear news backlog
   const { data: articles, error: fetchError } = await supabase
-  .from('oil_news')
-  .select('id, title, description')
-  .is('sentiment_score', null)
-  .limit(50);
+    .from('oil_news')
+    .select('id, title, description')
+    .is('sentiment_score', null)
+    .limit(50);
   
   if (fetchError) {
     console.error('Error fetching unanalyzed articles:', fetchError.message);
@@ -119,9 +126,11 @@ async function analyzeNewsWithGemini() {
   }
 
   if (!articles || articles.length === 0) {
-    console.log('No unanalyzed articles found.');
+    console.log('No unanalyzed articles found in backlog.');
     return;
   }
+
+  console.log(`Scoring ${articles.length} unanalyzed articles...`);
 
   for (const article of articles) {
     try {
@@ -139,28 +148,28 @@ async function analyzeNewsWithGemini() {
 }
 
 async function generateSynthesizedReport() {
-  console.log('Generating Elite Economic Analyst Briefing...');
+  console.log('Generating Senior Analyst Executive Briefing...');
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const { data: recentNews } = await supabase.from('oil_news').select('title, sentiment_score, category').not('sentiment_score', 'is', null).order('published_at', { ascending: false }).limit(15);
   const { data: prices } = await supabase.from('oil_prices').select('symbol, price, day_low, day_high').order('recorded_at', { ascending: false }).limit(2);
 
-  const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price} (Low: $${p.day_low}, High: $${p.day_high})`).join(', ') : 'WTI, Brent active ranges.';
-  const newsSummary = recentNews ? recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n') : 'Active geopolitical catalysts.';
+  const priceSummary = prices ? prices.map(p => `${p.symbol}: $${p.price} (Low: $${p.day_low}, High: $${p.day_high})`).join(', ') : 'WTI, Brent active trading ranges.';
+  const newsSummary = recentNews ? recentNews.map(n => `[${n.category}] ${n.title} (Sentiment: ${n.sentiment_score})`).join('\n') : 'Active macroeconomic catalysts.';
 
   const prompt = `
     You are the Chief Global Energy Economist at a premier macroeconomic institution. 
-    Analyze the current live benchmark prices and daily ranges (${priceSummary}) along with the real-time news sentiment below. 
+    Analyze current live crude benchmarks (${priceSummary}) alongside real-time institutional feed sentiment:
 
     Recent Market News & Sentiment:
     ${newsSummary}
 
-    Write a high-conviction executive briefing. You MUST explicitly weave in commentary analyzing the upcoming 5-day predictive price tendencies based on these news catalysts and supply/demand dynamics. Speak with elite, authoritative economic foresight.
+    Write an executive market briefing. Explicitly connect live price action, news sentiment, and supply/demand catalysts to the upcoming 5-day predictive trajectory. Speak with authoritative institutional insight.
     
     Respond ONLY with a raw JSON object (no markdown, no backticks) in this exact format:
     {
       "market_bias": "Bullish" or "Bearish" or "Neutral",
-      "summary": "3-4 punchy, authoritative macroeconomic sentences explicitly connecting live price action and news catalysts to the 5-day predictive trajectory.",
+      "summary": "3-4 authoritative macroeconomic sentences connecting live price action and news catalysts to the 5-day predictive trajectory.",
       "key_drivers": ["Driver 1", "Driver 2", "Driver 3"]
     }
   `;
@@ -186,7 +195,7 @@ async function generateSynthesizedReport() {
     summary: summaryText,
     key_drivers: keyDrivers
   }]);
-  console.log('Successfully saved elite macroeconomic briefing.');
+  console.log('Successfully published senior analyst briefing.');
 }
 
 async function runPipeline() {
@@ -195,7 +204,7 @@ async function runPipeline() {
     await collectNews();
     await analyzeNewsWithGemini();
     await generateSynthesizedReport();
-    console.log('Complete intelligence pipeline finished successfully.');
+    console.log('Pipeline execution completed successfully.');
   } catch (err) {
     console.error('Pipeline fatal error:', err);
   } finally {
