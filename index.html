@@ -312,15 +312,22 @@
         .from('price_forecasts')
         .select('*')
         .eq('symbol', symbol)
-        .order('target_date', { ascending: true })
-        .limit(5);
+        .order('target_date', { ascending: true });
 
       if (!forecasts || forecasts.length === 0) return;
 
-      const labels = forecasts.map(f => f.target_date);
-      const predictedData = forecasts.map(f => Number(f.predicted_price));
-      const upperData = forecasts.map(f => Number(f.upper_bound));
-      const lowerData = forecasts.map(f => Number(f.lower_bound));
+      // Filter to guarantee only UNIQUE target dates are plotted
+      const uniqueMap = new Map();
+      forecasts.forEach(f => {
+        uniqueMap.set(f.target_date, f);
+      });
+      
+      const uniqueForecasts = Array.from(uniqueMap.values()).slice(0, 5);
+
+      const labels = uniqueForecasts.map(f => f.target_date);
+      const predictedData = uniqueForecasts.map(f => Number(f.predicted_price));
+      const upperData = uniqueForecasts.map(f => Number(f.upper_bound));
+      const lowerData = uniqueForecasts.map(f => Number(f.lower_bound));
 
       const ctx = document.getElementById('forecastChart').getContext('2d');
       if (forecastChart) forecastChart.destroy();
