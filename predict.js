@@ -43,18 +43,13 @@ async function generateForecasts() {
       const forecastsToInsert = [];
       let rollingPrice = baselinePrice;
 
-      // 3. Generate 5 distinct future days (Day +1 to Day +5)
+      // 3. Generate 5 distinct future days sequentially using UTC to prevent date collisions
       for (let day = 1; day <= 5; day++) {
         rollingPrice += momentumFactor + (Math.sin(day * 0.8) * 0.35);
         
-        // Generate distinct tomorrow, day-after-tomorrow, etc.
         const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() + day);
-        
-        const year = targetDate.getFullYear();
-        const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-        const dateStr = String(targetDate.getDate()).padStart(2, '0');
-        const formattedDate = `${year}-${month}-${dateStr}`;
+        targetDate.setUTCDate(targetDate.getUTCDate() + day); // Clean UTC day increment
+        const formattedDate = targetDate.toISOString().split('T')[0]; // Guarantees unique YYYY-MM-DD
 
         forecastsToInsert.push({
           symbol: symbol,
