@@ -1,17 +1,15 @@
-name: Run Oil News & AI Analyzer
+name: Oil Market Pipeline
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # Triggers automatically every 10 minutes
+    - cron: '*/5 * * * *' # Executes every 5 minutes
   workflow_dispatch:
 
 jobs:
-  collect-and-analyze:
+  run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -22,14 +20,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run Data Collection & Sentiment Pipeline
+      - name: Run Main Ingestion Pipeline
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node index.js
 
-      - name: Run Predictive Modeling Engine
+      - name: Run Predictive Model
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
