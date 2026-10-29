@@ -19,7 +19,7 @@
       </div>
       <div class="flex items-center gap-3">
         <span class="bg-indigo-950 text-indigo-400 border border-indigo-800/80 px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5">
-          ⏱️ Auto-updates every 10 mins
+          ⏱️ Auto-updates every 5 mins
         </span>
         <div id="status-badge" class="bg-emerald-950 text-emerald-400 border border-emerald-800 px-4 py-1.5 rounded-full text-xs font-semibold">
           ● Live Feed Active
@@ -176,8 +176,8 @@
       // 3. Render Forecast Chart
       await renderForecastChart(currentSelectedSymbol);
 
-      // 4. Fetch News
-      const { data: articles } = await supabaseClient.from('oil_news').select('*').order('published_at', { ascending: false }).limit(40);
+      // 4. Fetch News & Calculate Average Sentiment
+      const { data: articles } = await supabaseClient.from('oil_news').select('*').order('published_at', { ascending: false }).limit(50);
       if (articles) {
         allArticles = articles;
         
@@ -189,6 +189,8 @@
           if (avg > 0.1) { biasEl.textContent = 'Bullish 📈'; biasEl.className = 'text-3xl font-bold mt-2 text-emerald-400'; }
           else if (avg < -0.1) { biasEl.textContent = 'Bearish 📉'; biasEl.className = 'text-3xl font-bold mt-2 text-rose-400'; }
           else { biasEl.textContent = 'Neutral ⚖️'; biasEl.className = 'text-3xl font-bold mt-2 text-amber-400'; }
+        } else {
+          document.getElementById('stat-sentiment').textContent = '-';
         }
 
         renderNews(allArticles);
