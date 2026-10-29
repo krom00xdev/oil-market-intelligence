@@ -43,13 +43,20 @@ async function generateForecasts() {
       const forecastsToInsert = [];
       let rollingPrice = baselinePrice;
 
-      // 3. Generate 5 distinct future days sequentially using UTC to prevent date collisions
+      // 3. Generate 5 strictly unique future calendar dates (Day +1 to Day +5)
+      const baseDate = new Date();
+      
       for (let day = 1; day <= 5; day++) {
         rollingPrice += momentumFactor + (Math.sin(day * 0.8) * 0.35);
         
-        const targetDate = new Date();
-        targetDate.setUTCDate(targetDate.getUTCDate() + day);
-        const formattedDate = targetDate.toISOString().split('T')[0];
+        const targetDate = new Date(baseDate);
+        targetDate.setDate(baseDate.getDate() + day);
+        
+        // Format strictly as YYYY-MM-DD string to prevent grouping collisions
+        const yyyy = targetDate.getFullYear();
+        const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(targetDate.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}-${mm}-${dd}`;
 
         forecastsToInsert.push({
           symbol: symbol,
@@ -60,7 +67,7 @@ async function generateForecasts() {
         });
       }
 
-      // 4. Purge old rows for symbol and save new projection horizon
+      // 4. Purge old rows for symbol and insert fresh 5-day horizon
       await supabase.from('price_forecasts').delete().eq('symbol', symbol);
       const { error } = await supabase.from('price_forecasts').insert(forecastsToInsert);
       
