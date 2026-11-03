@@ -79,7 +79,7 @@
       <div class="flex justify-between items-center mb-6">
         <div>
           <h2 class="text-lg font-bold text-white">AI Experimental Trade Signals & Execution Log</h2>
-          <p class="text-xs text-gray-400">Algorithmic limit orders, risk parameters, and historical success/failure tracking</p>
+          <p class="text-xs text-gray-400">Algorithmic limit orders, risk parameters, and MT5 bridge sync</p>
         </div>
         <span class="px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
           Experimental Track Record Active
@@ -117,7 +117,7 @@
     // Paste your Supabase Project Details
     const SUPABASE_URL = "https://YOUR-PROJECT-ID.supabase.co";
     const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     async function loadDashboardData() {
       // 1. Fetch Prices
