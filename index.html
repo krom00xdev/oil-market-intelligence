@@ -128,11 +128,13 @@
     // Paste your Supabase Project Details
     const SUPABASE_URL = "https://YOUR-PROJECT-ID.supabase.co";
     const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    // Use 'supabaseClient' instead of 'supabase' to prevent naming collisions with the CDN script
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     async function loadDashboardData() {
       // 1. Fetch Prices
-      const { data: prices } = await supabase.from('oil_prices').select('*').order('created_at', { ascending: false }).limit(2);
+      const { data: prices } = await supabaseClient.from('oil_prices').select('*').order('created_at', { ascending: false }).limit(2);
       if (prices && prices.length > 0) {
         const wti = prices.find(p => p.symbol === 'WTI');
         const brent = prices.find(p => p.symbol === 'BRENT');
@@ -147,7 +149,7 @@
       }
 
       // 2. Fetch Trade Signals
-      const { data: signals } = await supabase.from('trade_signals').select('*').order('created_at', { ascending: false });
+      const { data: signals } = await supabaseClient.from('trade_signals').select('*').order('created_at', { ascending: false });
       const signalsContainer = document.getElementById('signals-container');
       const historyTable = document.getElementById('history-table');
 
@@ -191,7 +193,7 @@
       }
 
       // 3. Fetch Recent Analyzed News
-      const { data: newsItems } = await supabase
+      const { data: newsItems } = await supabaseClient
         .from('oil_news')
         .select('*')
         .order('published_at', { ascending: false })
