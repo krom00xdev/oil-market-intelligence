@@ -89,7 +89,18 @@
       <div id="signals-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <!-- Rendered dynamically -->
       </div>
+    </div>
 
+    <!-- Live Analyzed News Feed -->
+    <div class="glass-card p-6 rounded-2xl">
+      <h2 class="text-lg font-bold text-white mb-4">Live Analyzed Energy & Geopolitical News Feed</h2>
+      <div id="news-container" class="space-y-3">
+        <p class="text-sm text-gray-400">Loading latest energy intelligence...</p>
+      </div>
+    </div>
+
+    <!-- Historical Execution Log & Success Metrics -->
+    <div class="glass-card p-6 rounded-2xl">
       <h3 class="text-md font-semibold text-white mb-3">Historical Execution Log & Success Metrics</h3>
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
@@ -117,7 +128,7 @@
     // Paste your Supabase Project Details
     const SUPABASE_URL = "https://YOUR-PROJECT-ID.supabase.co";
     const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     async function loadDashboardData() {
       // 1. Fetch Prices
@@ -177,6 +188,39 @@
       } else {
         signalsContainer.innerHTML = `<p class="text-sm text-gray-400 col-span-2">No active trade setups available yet.</p>`;
         historyTable.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-gray-500">No historical records found.</td></tr>`;
+      }
+
+      // 3. Fetch Recent Analyzed News
+      const { data: newsItems } = await supabase
+        .from('oil_news')
+        .select('*')
+        .order('published_at', { ascending: false })
+        .limit(6);
+
+      const newsContainer = document.getElementById('news-container');
+      if (newsContainer) {
+        newsContainer.innerHTML = '';
+        if (newsItems && newsItems.length > 0) {
+          newsItems.forEach(item => {
+            let sentimentColor = 'text-gray-400 bg-gray-800/50';
+            if (item.sentiment_score > 0.1) sentimentColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+            else if (item.sentiment_score < -0.1) sentimentColor = 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+
+            newsContainer.innerHTML += `
+              <div class="p-4 rounded-xl bg-gray-900/60 border border-gray-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div>
+                  <a href="${item.url}" target="_blank" class="font-semibold text-white hover:text-blue-400 transition text-sm">${item.title}</a>
+                  <p class="text-xs text-gray-400 mt-1">${item.source} • ${new Date(item.published_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                </div>
+                <span class="px-2.5 py-1 rounded-full text-xs font-medium border ${sentimentColor}">
+                  Score: ${item.sentiment_score > 0 ? '+' : ''}${Number(item.sentiment_score).toFixed(2)}
+                </span>
+              </div>
+            `;
+          });
+        } else {
+          newsContainer.innerHTML = `<p class="text-sm text-gray-400">No news articles found yet. Run GitHub workflow to ingest feeds.</p>`;
+        }
       }
     }
 
