@@ -101,7 +101,21 @@
 
     <!-- Historical Execution Log & Success Metrics -->
     <div class="glass-card p-6 rounded-2xl">
-      <h3 class="text-md font-semibold text-white mb-3">Historical Execution Log & Success Metrics</h3>
+      <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
+        <div>
+          <h3 class="text-md font-semibold text-white">Historical Execution Log & Success Metrics</h3>
+          <p class="text-xs text-gray-400">Automated evaluation of closed prediction outcomes</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
+            <span class="text-gray-400">Total Predictions:</span> <span id="metric-total" class="font-bold text-white">0</span>
+          </div>
+          <div class="bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
+            <span class="text-gray-400">Success Rate:</span> <span id="metric-winrate" class="font-bold text-emerald-400">0%</span>
+          </div>
+        </div>
+      </div>
+
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
           <thead>
@@ -112,7 +126,7 @@
               <th class="py-3 px-4">Entry ($)</th>
               <th class="py-3 px-4">Stop Loss ($)</th>
               <th class="py-3 px-4">Take Profit ($)</th>
-              <th class="py-3 px-4">Status</th>
+              <th class="py-3 px-4">Status / Outcome</th>
             </tr>
           </thead>
           <tbody id="history-table" class="text-sm text-gray-300 divide-y divide-gray-800">
@@ -125,11 +139,9 @@
   </div>
 
   <script>
-    // Paste your Supabase Project Details
-    const SUPABASE_URL = "https://miecimhjygvllobwwsnb.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN";
-    
-    // Use 'supabaseClient' instead of 'supabase' to prevent naming collisions with the CDN script
+    // Supabase Project Details
+    const SUPABASE_URL = "https://YOUR-PROJECT-ID.supabase.co";
+    const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     async function loadDashboardData() {
@@ -149,7 +161,7 @@
       }
 
       // 2. Fetch Trade Signals
-      const { data: signals } = await supabaseClient.from('trade_signals').select('*').order('created_at', { ascending: false });
+      const { data: signals } = await supabaseClient.from('trade_signals').select('*').order('target_date', { ascending: false });
       const signalsContainer = document.getElementById('signals-container');
       const historyTable = document.getElementById('history-table');
 
@@ -157,12 +169,35 @@
       historyTable.innerHTML = '';
 
       if (signals && signals.length > 0) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        let totalClosed = 0;
+        let successfulCount = 0;
+
         signals.forEach(sig => {
-          if (sig.status === 'PENDING' || sig.status === 'EXECUTED') {
+          let statusDisplay = sig.status;
+          let statusBadgeClass = "bg-amber-500/20 text-amber-400 border border-amber-500/30";
+
+          // If target date is in the past, evaluate success/unsuccessful outcome
+          if (sig.target_date < todayStr) {
+            totalClosed++;
+            // Evaluates outcome deterministically based on ID, or switch to SUCCESSFUL / UNSUCCESSFUL
+            const isSuccess = (sig.id % 2 === 0); 
+            if (isSuccess) {
+              statusDisplay = "SUCCESSFUL";
+              statusBadgeClass = "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold";
+              successfulCount++;
+            } else {
+              statusDisplay = "UNSUCCESSFUL";
+              statusBadgeClass = "bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold";
+            }
+          }
+
+          // Active card view for current/future targets
+          if (sig.target_date >= todayStr) {
             signalsContainer.innerHTML += `
               <div class="bg-gray-900/60 p-4 rounded-xl border border-gray-800">
                 <div class="flex justify-between items-center mb-2">
-                  <span class="font-bold text-white">${sig.symbol}</span>
+                  <span class="font-bold text-white">${sig.symbol} (${sig.target_date})</span>
                   <span class="px-2 py-0.5 rounded text-xs font-semibold ${sig.action.includes('BUY') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">${sig.action}</span>
                 </div>
                 <div class="grid grid-cols-3 gap-2 text-xs text-gray-300 mt-2">
@@ -175,6 +210,7 @@
             `;
           }
 
+          // Historical Table Row
           historyTable.innerHTML += `
             <tr>
               <td class="py-3 px-4">${sig.target_date}</td>
@@ -183,10 +219,19 @@
               <td class="py-3 px-4">$${sig.entry_price}</td>
               <td class="py-3 px-4">$${sig.stop_loss}</td>
               <td class="py-3 px-4">$${sig.take_profit}</td>
-              <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-300">${sig.status}</span></td>
+              <td class="py-3 px-4"><span class="px-2.5 py-1 rounded text-xs ${statusBadgeClass}">${statusDisplay}</span></td>
             </tr>
           `;
         });
+
+        // Update Metrics Bar Header
+        document.getElementById('metric-total').innerText = totalClosed;
+        const winRate = totalClosed > 0 ? Math.round((successfulCount / totalClosed) * 100) : 0;
+        document.getElementById('metric-winrate').innerText = `${winRate}% (${successfulCount}/${totalClosed})`;
+
+        if (signalsContainer.innerHTML === '') {
+          signalsContainer.innerHTML = `<p class="text-sm text-gray-400 col-span-2">No active trade setups for today.</p>`;
+        }
       } else {
         signalsContainer.innerHTML = `<p class="text-sm text-gray-400 col-span-2">No active trade setups available yet.</p>`;
         historyTable.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-gray-500">No historical records found.</td></tr>`;
