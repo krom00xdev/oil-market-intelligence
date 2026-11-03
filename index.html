@@ -33,14 +33,14 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div class="glass-card p-6 rounded-2xl">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400">WTI Crude Spot</h3>
-        <p id="wti-price" class="text-3xl font-extrabold mt-2 text-white">$103.50</p>
-        <p id="wti-change" class="text-sm text-emerald-400 mt-1">+ $0.50 (24h)</p>
+        <p id="wti-price" class="text-3xl font-extrabold mt-2 text-white">Loading...</p>
+        <p id="wti-change" class="text-sm text-emerald-400 mt-1">-- (24h)</p>
       </div>
 
       <div class="glass-card p-6 rounded-2xl">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400">Brent Crude Spot</h3>
-        <p id="brent-price" class="text-3xl font-extrabold mt-2 text-white">$112.50</p>
-        <p id="brent-change" class="text-sm text-emerald-400 mt-1">+ $0.60 (24h)</p>
+        <p id="brent-price" class="text-3xl font-extrabold mt-2 text-white">Loading...</p>
+        <p id="brent-change" class="text-sm text-emerald-400 mt-1">-- (24h)</p>
       </div>
 
       <div class="glass-card p-6 rounded-2xl">
@@ -135,15 +135,14 @@
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 
   <script>
-    // Supabase Project Details
+    // Supabase Project Details (Replace with your actual keys)
     const SUPABASE_URL = "https://miecimhjygvllobwwsnb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Function to render TradingView Chart dynamically based on dropdown selection
     function renderTradingViewChart(symbol) {
       const container = document.getElementById('tradingview_widget_wrapper');
-      container.innerHTML = ''; // Clear previous chart instance
+      container.innerHTML = '';
 
       const widgetDiv = document.createElement('div');
       widgetDiv.id = 'tradingview_active_chart';
@@ -164,7 +163,6 @@
         "container_id": "tradingview_active_chart"
       });
 
-      // Update heading title dynamically
       const titleEl = document.getElementById('chart-title');
       if (symbol === 'TVC:UKOIL') {
         titleEl.innerText = "Live Brent Crude (UKOIL) Technical Chart";
@@ -178,23 +176,32 @@
     }
 
     async function loadDashboardData() {
-      // 1. Fetch Prices
-      const { data: prices } = await supabaseClient.from('oil_prices').select('*').order('created_at', { ascending: false }).limit(2);
+      // 1. Fetch Prices from Supabase
+      const { data: prices } = await supabaseClient
+        .from('oil_prices')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
       if (prices && prices.length > 0) {
         const wti = prices.find(p => p.symbol === 'WTI');
         const brent = prices.find(p => p.symbol === 'BRENT');
         if (wti) {
-          document.getElementById('wti-price').innerText = `$${wti.price.toFixed(2)}`;
-          document.getElementById('wti-change').innerText = `${wti.change_24h >= 0 ? '+' : ''}$${wti.change_24h.toFixed(2)} (24h)`;
+          document.getElementById('wti-price').innerText = `$${Number(wti.price).toFixed(2)}`;
+          document.getElementById('wti-change').innerText = `${wti.change_24h >= 0 ? '+' : ''}$${Number(wti.change_24h).toFixed(2)} (24h)`;
         }
         if (brent) {
-          document.getElementById('brent-price').innerText = `$${brent.price.toFixed(2)}`;
-          document.getElementById('brent-change').innerText = `${brent.change_24h >= 0 ? '+' : ''}$${brent.change_24h.toFixed(2)} (24h)`;
+          document.getElementById('brent-price').innerText = `$${Number(brent.price).toFixed(2)}`;
+          document.getElementById('brent-change').innerText = `${brent.change_24h >= 0 ? '+' : ''}$${Number(brent.change_24h).toFixed(2)} (24h)`;
         }
       }
 
       // 2. Fetch Trade Signals
-      const { data: signals } = await supabaseClient.from('trade_signals').select('*').order('target_date', { ascending: false });
+      const { data: signals } = await supabaseClient
+        .from('trade_signals')
+        .select('*')
+        .order('target_date', { ascending: false });
+
       const signalsContainer = document.getElementById('signals-container');
       const historyTable = document.getElementById('history-table');
 
@@ -299,7 +306,6 @@
       }
     }
 
-    // Initialize default WTI chart on load
     renderTradingViewChart('TVC:USOIL');
     loadDashboardData();
   </script>
