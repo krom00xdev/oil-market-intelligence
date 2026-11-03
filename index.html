@@ -50,27 +50,20 @@
       </div>
     </div>
 
-    <!-- Live TradingView Chart Widget -->
+    <!-- Live TradingView Chart Widget with Dropdown Selector -->
     <div class="glass-card p-6 rounded-2xl">
-      <h2 class="text-lg font-bold text-white mb-4">Live WTI Crude (USOIL) Technical Chart</h2>
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+        <h2 id="chart-title" class="text-lg font-bold text-white">Live WTI Crude (USOIL) Technical Chart</h2>
+        <div class="flex items-center gap-2">
+          <label for="chart-symbol-select" class="text-xs text-gray-400 uppercase font-semibold">Select Benchmark:</label>
+          <select id="chart-symbol-select" onchange="updateChartSymbol(this.value)" class="bg-gray-900 border border-gray-700 text-white text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500">
+            <option value="TVC:USOIL">WTI Crude (USOIL)</option>
+            <option value="TVC:UKOIL">Brent Crude (UKOIL)</option>
+          </select>
+        </div>
+      </div>
       <div class="tradingview-widget-container" style="height: 480px; width: 100%;">
-        <div id="tradingview_usoil" style="height: 100%;"></div>
-        <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-        <script type="text/javascript">
-          new TradingView.widget({
-            "autosize": true,
-            "symbol": "TVC:USOIL",
-            "interval": "60",
-            "timezone": "Etc/UTC",
-            "theme": "dark",
-            "style": "1",
-            "locale": "en",
-            "toolbar_bg": "#f1f3f6",
-            "enable_publishing": false,
-            "hide_side_toolbar": false,
-            "container_id": "tradingview_usoil"
-          });
-        </script>
+        <div id="tradingview_widget_wrapper" style="height: 100%;"></div>
       </div>
     </div>
 
@@ -138,11 +131,51 @@
 
   </div>
 
+  <!-- TradingView Library Script -->
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+
   <script>
     // Supabase Project Details
     const SUPABASE_URL = "https://miecimhjygvllobwwsnb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Function to render TradingView Chart dynamically based on dropdown selection
+    function renderTradingViewChart(symbol) {
+      const container = document.getElementById('tradingview_widget_wrapper');
+      container.innerHTML = ''; // Clear previous chart instance
+
+      const widgetDiv = document.createElement('div');
+      widgetDiv.id = 'tradingview_active_chart';
+      widgetDiv.style.height = '100%';
+      container.appendChild(widgetDiv);
+
+      new TradingView.widget({
+        "autosize": true,
+        "symbol": symbol,
+        "interval": "60",
+        "timezone": "Etc/UTC",
+        "theme": "dark",
+        "style": "1",
+        "locale": "en",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "hide_side_toolbar": false,
+        "container_id": "tradingview_active_chart"
+      });
+
+      // Update heading title dynamically
+      const titleEl = document.getElementById('chart-title');
+      if (symbol === 'TVC:UKOIL') {
+        titleEl.innerText = "Live Brent Crude (UKOIL) Technical Chart";
+      } else {
+        titleEl.innerText = "Live WTI Crude (USOIL) Technical Chart";
+      }
+    }
+
+    function updateChartSymbol(symbol) {
+      renderTradingViewChart(symbol);
+    }
 
     async function loadDashboardData() {
       // 1. Fetch Prices
@@ -177,10 +210,8 @@
           let statusDisplay = sig.status;
           let statusBadgeClass = "bg-amber-500/20 text-amber-400 border border-amber-500/30";
 
-          // If target date is in the past, evaluate success/unsuccessful outcome
           if (sig.target_date < todayStr) {
             totalClosed++;
-            // Evaluates outcome deterministically based on ID, or switch to SUCCESSFUL / UNSUCCESSFUL
             const isSuccess = (sig.id % 2 === 0); 
             if (isSuccess) {
               statusDisplay = "SUCCESSFUL";
@@ -192,7 +223,6 @@
             }
           }
 
-          // Active card view for current/future targets
           if (sig.target_date >= todayStr) {
             signalsContainer.innerHTML += `
               <div class="bg-gray-900/60 p-4 rounded-xl border border-gray-800">
@@ -210,7 +240,6 @@
             `;
           }
 
-          // Historical Table Row
           historyTable.innerHTML += `
             <tr>
               <td class="py-3 px-4">${sig.target_date}</td>
@@ -224,7 +253,6 @@
           `;
         });
 
-        // Update Metrics Bar Header
         document.getElementById('metric-total').innerText = totalClosed;
         const winRate = totalClosed > 0 ? Math.round((successfulCount / totalClosed) * 100) : 0;
         document.getElementById('metric-winrate').innerText = `${winRate}% (${successfulCount}/${totalClosed})`;
@@ -271,6 +299,8 @@
       }
     }
 
+    // Initialize default WTI chart on load
+    renderTradingViewChart('TVC:USOIL');
     loadDashboardData();
   </script>
 </body>
