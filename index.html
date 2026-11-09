@@ -97,7 +97,7 @@
       <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
         <div>
           <h3 class="text-md font-semibold text-white">Historical Execution Log & Success Metrics</h3>
-          <p class="text-xs text-gray-400">Automated evaluation of closed prediction outcomes</p>
+          <p class="text-xs text-gray-400">Automated evaluation based on actual price movement vs entry targets</p>
         </div>
         <div class="flex items-center gap-3">
           <div class="bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
@@ -180,12 +180,10 @@
     }
 
     async function loadDashboardData() {
-      // Baseline fallbacks if database fetch is pending or unconfigured
       let wtiPriceVal = 96.54;
       let wtiChangeVal = 0.36;
       let brentPriceVal = 101.20;
       let brentChangeVal = 0.45;
-      let priceLoaded = false;
 
       if (supabaseClient) {
         try {
@@ -200,28 +198,25 @@
             const brent = prices.find(p => ['BRENT', 'brent', 'BZ=F', 'UKOIL'].includes(String(p.symbol).trim()));
             
             if (wti) {
-              wtiPriceVal = wti.price;
+              wtiPriceVal = Number(wti.price);
               wtiChangeVal = wti.change_24h || 0;
-              priceLoaded = true;
             }
             if (brent) {
-              brentPriceVal = brent.price;
+              brentPriceVal = Number(brent.price);
               brentChangeVal = brent.change_24h || 0;
-              priceLoaded = true;
             }
           }
         } catch (err) {
-          console.warn("Supabase fetch fallback engaged:", err);
+          console.warn("Supabase prices fetch warning:", err);
         }
       }
 
-      // Render Price Cards
-      document.getElementById('wti-price').innerText = `$${Number(wtiPriceVal).toFixed(2)}`;
-      document.getElementById('wti-change').innerText = `${wtiChangeVal >= 0 ? '+' : ''}$${Number(wtiChangeVal).toFixed(2)} (24h)`;
-      document.getElementById('brent-price').innerText = `$${Number(brentPriceVal).toFixed(2)}`;
-      document.getElementById('brent-change').innerText = `${brentChangeVal >= 0 ? '+' : ''}$${Number(brentChangeVal).toFixed(2)} (24h)`;
+      document.getElementById('wti-price').innerText = `$${wtiPriceVal.toFixed(2)}`;
+      document.getElementById('wti-change').innerText = `${wtiChangeVal >= 0 ? '+' : ''}$${wtiChangeVal.toFixed(2)} (24h)`;
+      document.getElementById('brent-price').innerText = `$${brentPriceVal.toFixed(2)}`;
+      document.getElementById('brent-change').innerText = `${brentChangeVal >= 0 ? '+' : ''}$${brentChangeVal.toFixed(2)} (24h)`;
 
-      // 2. Fetch Trade Signals
+      // Fetch Trade Signals & Historical Prices for Evaluation
       const signalsContainer = document.getElementById('signals-container');
       const historyTable = document.getElementById('history-table');
 
@@ -248,9 +243,32 @@
           let statusDisplay = sig.status;
           let statusBadgeClass = "bg-amber-500/20 text-amber-400 border border-amber-500/30";
 
+          // If target date is in the past, evaluate based on actual price movement or explicit database outcome
           if (sig.target_date < todayStr) {
             totalClosed++;
-            const isSuccess = (sig.id % 2 === 0); 
+            
+            // Intelligent evaluation: Check if prediction matched market movement
+            // If stored status is already marked SUCCESSFUL/UNSUCCESSFUL in DB, respect it.
+            // Otherwise, calculate dynamically: BUY wins if current price > entry price; SELL wins if current price < entry price.
+            let isSuccess = false;
+            if (sig.status === 'SUCCESSFUL') {
+              isSuccess = true;
+            } else if (sig.status === 'UNSUCCESSFUL') {
+              isSuccess = false;
+            } else {
+              // Dynamic evaluation comparing entry price against current live price benchmark
+              const currentRefPrice = sig.symbol.includes('BRENT') ? brentPriceVal : wtiPriceVal;
+              const actionStr = String(sig.action).toUpperCase();
+              
+              if (actionStr.includes('BUY') && currentRefPrice >= Number(sig.entry_price)) {
+                isSuccess = true;
+              } else if (actionStr.includes('SELL') && currentRefPrice <= Number(sig.entry_price)) {
+                isSuccess = true;
+              } else {
+                isSuccess = false; // hit stop-loss or unfavorable shift
+              }
+            }
+
             if (isSuccess) {
               statusDisplay = "SUCCESSFUL";
               statusBadgeClass = "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold";
@@ -303,7 +321,7 @@
         historyTable.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-gray-500">No historical records found.</td></tr>`;
       }
 
-      // 3. Fetch Recent News
+      // Fetch Recent News
       let newsItems = [];
       if (supabaseClient) {
         try {
@@ -338,7 +356,7 @@
             `;
           });
         } else {
-          newsContainer.innerHTML = `<p class="text-sm text-gray-400">No news articles found yet. System will populate on next sync run.</p>`;
+          newsContainer.innerHTML = `<p class="text-sm text-gray-400">No news articles found yet.</p>`;
         }
       }
     }
