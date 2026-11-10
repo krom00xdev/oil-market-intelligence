@@ -18,15 +18,14 @@ const FEEDS = [
   { category: 'Geopolitical & Politics', name: 'Reuters World News', url: 'https://www.reutersagency.com/feed/?best-topics=world-news&post_type=best' },
   { category: 'Technology & Transition', name: 'CleanTechnica', url: 'https://cleantechnica.com/feed/' },
   { category: 'Financial & Commodity', name: 'FXStreet News', url: 'https://xml.fxstreet.com/news/forex-news/index.xml' },
-  { category: 'Financial & Commodity', name: 'ForexLive Investing', url: 'https://investinglive.com/rss/' }
+  { category: 'Financial & Commodity', name: 'ForexLive Investing', url: 'https://investinglive.com/rss/' },
   { category: 'Financial & Commodity', name: 'World Monitor', url: 'https://www.worldmonitor.app/rss' },
   { category: 'Geopolitical & Politics', name: 'Geopolitical Futures', url: 'https://geopoliticalfutures.com/feed/' },
   { category: 'Geopolitical & Politics', name: 'Council on Foreign Relations', url: 'https://www.cfr.org/feed' },
   { category: 'Geopolitical & Politics', name: 'Chatham House', url: 'https://www.chathamhouse.org/path/news-releases.xml' },
   { category: 'Financial & Commodity', name: 'S&P Global Energy & Commodities', url: 'https://www.spglobal.com/en/enterprise/insights/rss/energy-news.rss' },
   { category: 'Financial & Commodity', name: 'Argus Media', url: 'https://www.argusmedia.com/en/news-and-insights/rss' },
-  { category: 'Financial & Commodity', name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' },
-  { category: 'Financial & Commodity', name: 'CNBC Energy', url: 'https://www.cnbc.com/id/19836768/device/rss/rss.html' }
+  { category: 'Financial & Commodity', name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' }
 ];
 
 const KEYWORDS = ['oil', 'crude', 'brent', 'wti', 'opec', 'petroleum', 'gasoline', 'energy', 'barrel', 'sanctions', 'refinery', 'drill', 'saudi', 'middle east', 'suez', 'strait of hormuz', 'pipeline', 'ev', 'renewables', 'fed', 'inflation', 'gdp'];
