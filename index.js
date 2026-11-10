@@ -19,6 +19,14 @@ const FEEDS = [
   { category: 'Technology & Transition', name: 'CleanTechnica', url: 'https://cleantechnica.com/feed/' },
   { category: 'Financial & Commodity', name: 'FXStreet News', url: 'https://xml.fxstreet.com/news/forex-news/index.xml' },
   { category: 'Financial & Commodity', name: 'ForexLive Investing', url: 'https://investinglive.com/rss/' }
+  { name: 'World Monitor', url: 'https://www.worldmonitor.app/rss' },
+  { name: 'Geopolitical Futures', url: 'https://geopoliticalfutures.com/feed/' },
+  { name: 'Council on Foreign Relations', url: 'https://www.cfr.org/feed' },
+  { name: 'Chatham House', url: 'https://www.chathamhouse.org/path/news-releases.xml' },
+  { name: 'S&P Global Energy & Commodities', url: 'https://www.spglobal.com/en/enterprise/insights/rss/energy-news.rss' },
+  { name: 'Argus Media', url: 'https://www.argusmedia.com/en/news-and-insights/rss' },
+  { name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' },
+  { name: 'CNBC Energy', url: 'https://www.cnbc.com/id/19836768/device/rss/rss.html' }
 ];
 
 const KEYWORDS = ['oil', 'crude', 'brent', 'wti', 'opec', 'petroleum', 'gasoline', 'energy', 'barrel', 'sanctions', 'refinery', 'drill', 'saudi', 'middle east', 'suez', 'strait of hormuz', 'pipeline', 'ev', 'renewables', 'fed', 'inflation', 'gdp'];
