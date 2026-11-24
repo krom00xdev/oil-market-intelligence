@@ -2,9 +2,25 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import Parser from 'rss-parser';
 
-// Initialize Supabase & Gemini SDKs using GitHub Action Secrets
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
+const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing SUPABASE_URL or Supabase key (SUPABASE_ANON_KEY / SUPABASE_KEY / SUPABASE_SERVICE_ROLE_KEY).');
+  process.exit(1);
+}
+
+if (!geminiKey) {
+  console.error('Missing GEMINI_API_KEY (or GOOGLE_API_KEY).');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+const ai = new GoogleGenAI({ apiKey: geminiKey });
 const parser = new Parser({
   timeout: 10000,
   headers: {
