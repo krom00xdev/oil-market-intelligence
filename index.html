@@ -92,6 +92,34 @@
       </div>
     </div>
 
+    <!-- 7-Day $1,000 -> $1,100 Capital Challenge Case Study -->
+    <div class="glass-card p-6 rounded-2xl border border-emerald-500/20">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+        <div>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            7-Day Live Case Study • 2% Compounding Risk
+          </span>
+          <h2 class="text-lg font-bold text-white mt-2">$1,000 → $1,100 (+10%) Weekly Capital Model</h2>
+          <p class="text-xs text-gray-400">Dynamic position sizing (2% risk/trade, ~1:2.3 R:R) driven by news sentiment & price signals</p>
+        </div>
+        <div class="text-left md:text-right">
+          <p class="text-xs text-gray-400 uppercase">Current Simulated Equity</p>
+          <p id="challenge-equity" class="text-3xl font-extrabold text-emerald-400">$1,000.00</p>
+          <p id="challenge-pnl" class="text-xs text-gray-300 mt-0.5">Net P&L: $0.00 (0.0% / +10.0% Goal)</p>
+        </div>
+      </div>
+
+      <!-- Progress Bar toward $1,100 -->
+      <div class="w-full bg-gray-900 rounded-full h-3 border border-gray-800 overflow-hidden">
+        <div id="challenge-progress-bar" class="bg-gradient-to-r from-blue-500 to-emerald-400 h-3 rounded-full transition-all duration-500" style="width: 0%;"></div>
+      </div>
+      <div class="flex justify-between text-xs text-gray-400 mt-2">
+        <span>Start: $1,000.00</span>
+        <span id="challenge-next-size" class="text-blue-400 font-medium">Next Trade Size: ~44 bbl (0.04 lots) • Risk $20.00</span>
+        <span>Target: $1,100.00 (+$100)</span>
+      </div>
+    </div>
+
     <!-- Historical Execution Log & Success Metrics -->
     <div class="glass-card p-6 rounded-2xl">
       <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
@@ -138,9 +166,9 @@
     // Paste your Supabase Project Details
     const SUPABASE_URL = "https://miecimhjygvllobwwsnb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN";
-    
+
     let supabaseClient = null;
-    if (SUPABASE_URL.includes("https://") && !SUPABASE_URL.includes("YOUR-PROJECT-ID")) {
+    if (SUPABASE_URL.includes("https://miecimhjygvllobwwsnb.supabase.co") && !SUPABASE_URL.includes("miecimhjygvllobwwsnb")) {
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
 
@@ -180,10 +208,11 @@
     }
 
     async function loadDashboardData() {
-      let wtiPriceVal = 96.54;
+      let wtiPriceVal = 89.62;
       let wtiChangeVal = 0.36;
-      let brentPriceVal = 101.20;
+      let brentPriceVal = 95.72;
       let brentChangeVal = 0.45;
+      let allPrices = [];
 
       if (supabaseClient) {
         try {
@@ -191,19 +220,20 @@
             .from('oil_prices')
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(10);
+            .limit(500);
 
           if (prices && prices.length > 0) {
+            allPrices = prices;
             const wti = prices.find(p => ['WTI', 'wti', 'CL=F', 'USOIL'].includes(String(p.symbol).trim()));
             const brent = prices.find(p => ['BRENT', 'brent', 'BZ=F', 'UKOIL'].includes(String(p.symbol).trim()));
-            
+
             if (wti) {
               wtiPriceVal = Number(wti.price);
-              wtiChangeVal = wti.change_24h || 0;
+              wtiChangeVal = Number(wti.change_24h || 0);
             }
             if (brent) {
               brentPriceVal = Number(brent.price);
-              brentChangeVal = brent.change_24h || 0;
+              brentChangeVal = Number(brent.change_24h || 0);
             }
           }
         } catch (err) {
@@ -216,7 +246,6 @@
       document.getElementById('brent-price').innerText = `$${brentPriceVal.toFixed(2)}`;
       document.getElementById('brent-change').innerText = `${brentChangeVal >= 0 ? '+' : ''}$${brentChangeVal.toFixed(2)} (24h)`;
 
-      // Fetch Trade Signals & Historical Prices for Evaluation
       const signalsContainer = document.getElementById('signals-container');
       const historyTable = document.getElementById('history-table');
 
@@ -238,36 +267,78 @@
         const todayStr = new Date().toISOString().split('T')[0];
         let totalClosed = 0;
         let successfulCount = 0;
+        const spreadBuffer = 0.05;
 
         signals.forEach(sig => {
           let statusDisplay = sig.status;
           let statusBadgeClass = "bg-amber-500/20 text-amber-400 border border-amber-500/30";
+          sig._evaluatedSuccess = false;
 
-          // If target date is in the past, evaluate based on actual price movement or explicit database outcome
           if (sig.target_date < todayStr) {
             totalClosed++;
-            
-            // Intelligent evaluation: Check if prediction matched market movement
-            // If stored status is already marked SUCCESSFUL/UNSUCCESSFUL in DB, respect it.
-            // Otherwise, calculate dynamically: BUY wins if current price > entry price; SELL wins if current price < entry price.
             let isSuccess = false;
+
             if (sig.status === 'SUCCESSFUL') {
               isSuccess = true;
             } else if (sig.status === 'UNSUCCESSFUL') {
               isSuccess = false;
             } else {
-              // Dynamic evaluation comparing entry price against current live price benchmark
-              const currentRefPrice = sig.symbol.includes('BRENT') ? brentPriceVal : wtiPriceVal;
+              const isBrent = String(sig.symbol).toUpperCase().includes('BRENT');
+              const symMatchFn = (p) => isBrent
+                ? ['BRENT', 'brent', 'BZ=F', 'UKOIL'].includes(String(p.symbol).trim())
+                : ['WTI', 'wti', 'CL=F', 'USOIL'].includes(String(p.symbol).trim());
+
+              const targetMs = new Date(`${sig.target_date}T12:00:00Z`).getTime();
+              const daySnaps = allPrices
+                .filter(p => {
+                  if (!symMatchFn(p) || !p.created_at) return false;
+                  const pDateStr = p.created_at.split('T')[0];
+                  if (pDateStr === sig.target_date) return true;
+                  const diffHours = Math.abs(new Date(p.created_at).getTime() - targetMs) / (1000 * 60 * 60);
+                  return diffHours <= 12;
+                })
+                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+              const entry = Number(sig.entry_price);
+              const tp = Number(sig.take_profit);
+              const sl = Number(sig.stop_loss);
               const actionStr = String(sig.action).toUpperCase();
-              
-              if (actionStr.includes('BUY') && currentRefPrice >= Number(sig.entry_price)) {
-                isSuccess = true;
-              } else if (actionStr.includes('SELL') && currentRefPrice <= Number(sig.entry_price)) {
-                isSuccess = true;
+              const isBuy = actionStr.includes('BUY');
+
+              if (daySnaps.length > 0) {
+                const pricesOnly = daySnaps.map(p => Number(p.price));
+                const dayHigh = Math.max(...pricesOnly);
+                const dayLow = Math.min(...pricesOnly);
+                const dayClose = pricesOnly[pricesOnly.length - 1];
+
+                if (isBuy) {
+                  const hitTP = tp > entry && dayHigh >= tp;
+                  const hitSL = sl < entry && dayLow <= sl;
+                  if (hitTP && !hitSL) {
+                    isSuccess = true;
+                  } else if (hitSL && !hitTP) {
+                    isSuccess = false;
+                  } else {
+                    isSuccess = (dayClose - entry) > spreadBuffer;
+                  }
+                } else {
+                  const hitTP = tp < entry && dayLow <= tp;
+                  const hitSL = sl > entry && dayHigh >= sl;
+                  if (hitTP && !hitSL) {
+                    isSuccess = true;
+                  } else if (hitSL && !hitTP) {
+                    isSuccess = false;
+                  } else {
+                    isSuccess = (entry - dayClose) > spreadBuffer;
+                  }
+                }
               } else {
-                isSuccess = false; // hit stop-loss or unfavorable shift
+                const refPrice = isBrent ? brentPriceVal : wtiPriceVal;
+                isSuccess = isBuy ? (refPrice - entry) > spreadBuffer : (entry - refPrice) > spreadBuffer;
               }
             }
+
+            sig._evaluatedSuccess = isSuccess;
 
             if (isSuccess) {
               statusDisplay = "SUCCESSFUL";
@@ -313,6 +384,45 @@
         const winRate = totalClosed > 0 ? Math.round((successfulCount / totalClosed) * 100) : 0;
         document.getElementById('metric-winrate').innerText = `${winRate}% (${successfulCount}/${totalClosed})`;
 
+        // Compute 7-Day $1,000 -> $1,100 Case Study Equity Curve (oldest to newest)
+        const startCapital = 1000.0;
+        const targetCapital = 1100.0;
+        const riskPct = 0.02;
+        let equity = startCapital;
+
+        const chronologicalClosed = [...signals]
+          .filter(s => s.target_date < todayStr)
+          .sort((a, b) => a.target_date.localeCompare(b.target_date));
+
+        chronologicalClosed.forEach(sig => {
+          const riskDollars = equity * riskPct;
+          const entry = Number(sig.entry_price);
+          const sl = Number(sig.stop_loss);
+          const tp = Number(sig.take_profit);
+          const slDist = Math.abs(entry - sl) || 0.45;
+          const tpDist = Math.abs(tp - entry) || 1.05;
+          const rr = tpDist / slDist;
+
+          if (sig._evaluatedSuccess) {
+            equity += riskDollars * rr;
+          } else {
+            equity -= riskDollars;
+          }
+        });
+
+        const netPnl = equity - startCapital;
+        const pctGain = (netPnl / startCapital) * 100;
+        const progressPct = Math.max(0, Math.min(100, ((equity - startCapital) / (targetCapital - startCapital)) * 100));
+        const nextRisk = equity * riskPct;
+        const nextBarrels = Math.round(nextRisk / 0.45);
+        const nextLots = (nextBarrels / 1000).toFixed(2);
+
+        document.getElementById('challenge-equity').innerText = `$${equity.toFixed(2)}`;
+        document.getElementById('challenge-equity').className = `text-3xl font-extrabold ${equity >= startCapital ? 'text-emerald-400' : 'text-rose-400'}`;
+        document.getElementById('challenge-pnl').innerText = `Net P&L: ${netPnl >= 0 ? '+' : ''}$${netPnl.toFixed(2)} (${pctGain >= 0 ? '+' : ''}${pctGain.toFixed(1)}% / +10.0% Goal)`;
+        document.getElementById('challenge-progress-bar').style.width = `${progressPct}%`;
+        document.getElementById('challenge-next-size').innerText = `Next Trade Size: ~${nextBarrels} bbl (${nextLots} lots) • Risk $${nextRisk.toFixed(2)}`;
+
         if (signalsContainer.innerHTML === '') {
           signalsContainer.innerHTML = `<p class="text-sm text-gray-400 col-span-2">No active trade setups for today.</p>`;
         }
@@ -321,7 +431,6 @@
         historyTable.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-gray-500">No historical records found.</td></tr>`;
       }
 
-      // Fetch Recent News
       let newsItems = [];
       if (supabaseClient) {
         try {
