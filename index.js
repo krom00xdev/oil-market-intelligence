@@ -1,16 +1,18 @@
-const WebSocket = require('ws');
-const { createClient } = require('@supabase/supabase-js');
-const Parser = require('rss-parser');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from '@google/genai';
+import Parser from 'rss-parser';
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
-  auth: { persistSession: false },
-  realtime: { transport: WebSocket }
+// Initialize Supabase & Gemini SDKs using GitHub Action Secrets
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const parser = new Parser({
+  timeout: 10000,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (compatible; OilMarketIntelligence/1.0)'
+  }
 });
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const parser = new Parser();
-
+// Comprehensive OSINT, Think Tank, Financial, and Energy Intelligence Feeds
 const FEEDS = [
   { category: 'Financial & Commodity', name: 'OilPrice.com', url: 'https://oilprice.com/rss/main' },
   { category: 'Financial & Commodity', name: 'CNBC Energy', url: 'https://search.cnbc.com/rs/search/combinednews/rss?partnerId=wrnt&keywords=oil' },
@@ -28,186 +30,91 @@ const FEEDS = [
   { category: 'Financial & Commodity', name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' }
 ];
 
-const KEYWORDS = ['oil', 'crude', 'brent', 'wti', 'opec', 'petroleum', 'gasoline', 'energy', 'barrel', 'sanctions', 'refinery', 'drill', 'saudi', 'middle east', 'suez', 'strait of hormuz', 'pipeline', 'ev', 'renewables', 'fed', 'inflation', 'gdp'];
-
-function isRelevant(text) {
-  if (!text) return false;
-  return KEYWORDS.some(kw => text.toLowerCase().includes(kw));
-}
-
-async function fetchRealCommodityPrice(symbol) {
-  const yahooSymbol = symbol === 'WTI' ? 'CL=F' : 'BZ=F';
+async function analyzeSentiment(text, category = 'Energy') {
   try {
-    const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Analyze the ${category} / geopolitical / economic impact of this headline on global crude oil prices (WTI/Brent). Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and +1.0 (extremely bullish), with no extra text: "${text}"`,
     });
-    if (res.ok) {
-      const data = await res.json();
-      const meta = data?.chart?.result?.[0]?.meta;
-      if (meta && meta.regularMarketPrice) {
-        const price = meta.regularMarketPrice;
-        const prevClose = meta.chartPreviousClose || price;
-        const dayLow = meta.regularMarketDayLow || price * 0.99;
-        const dayHigh = meta.regularMarketDayHigh || price * 1.01;
-
-        return {
-          price: parseFloat(price.toFixed(2)),
-          change_24h: parseFloat((price - prevClose).toFixed(2)),
-          day_low: parseFloat(dayLow.toFixed(2)),
-          day_high: parseFloat(dayHigh.toFixed(2))
-        };
-      }
-    }
+    const raw = (response.text || '').trim();
+    const score = parseFloat(raw);
+    return Number.isNaN(score) ? 0.0 : Math.max(-1.0, Math.min(1.0, score));
   } catch (err) {
-    console.warn(`Yahoo price fetch for ${symbol} failed:`, err.message);
-  }
-  return null;
-}
-
-async function fetchAndStorePrices() {
-  console.log('Fetching live real-time oil market prices & daily ranges...');
-  const wti = await fetchRealCommodityPrice('WTI');
-  const brent = await fetchRealCommodityPrice('BRENT');
-
-  const pricesToInsert = [];
-  if (wti) pricesToInsert.push({ symbol: 'WTI', price: wti.price, change_24h: wti.change_24h, day_low: wti.day_low, day_high: wti.day_high });
-  else pricesToInsert.push({ symbol: 'WTI', price: 103.50, change_24h: 0.5, day_low: 102.00, day_high: 104.50 }); // Fallback
-
-  if (brent) pricesToInsert.push({ symbol: 'BRENT', price: brent.price, change_24h: brent.change_24h, day_low: brent.day_low, day_high: brent.day_high });
-  else pricesToInsert.push({ symbol: 'BRENT', price: 112.50, change_24h: 0.6, day_low: 111.00, day_high: 113.80 }); // Fallback
-
-  const { error } = await supabase.from('oil_prices').insert(pricesToInsert);
-  if (error) console.error('Error saving prices:', error.message);
-  else console.log('Saved real market prices and ranges to database.');
-}
-
-async function collectNews() {
-  console.log('Collecting multi-source energy and macroeconomic news...');
-  for (const feedConfig of FEEDS) {
-    try {
-      const feed = await parser.parseURL(feedConfig.url);
-      const articlesToInsert = [];
-
-      for (const item of feed.items) {
-        const title = item.title || '';
-        const description = item.contentSnippet || item.content || '';
-        if (feedConfig.category === 'Financial & Commodity' || isRelevant(`${title} ${description}`)) {
-          articlesToInsert.push({
-            title: title.trim(),
-            description: description.trim().substring(0, 500),
-            source: feedConfig.name,
-            url: item.link || `https://fallback-${Math.random()}`,
-            category: feedConfig.category,
-            published_at: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-            sentiment_score: 0.25 // Default safe baseline score so it never stays null
-          });
-        }
-      }
-
-      if (articlesToInsert.length > 0) {
-        await supabase.from('oil_news').upsert(articlesToInsert, { onConflict: 'url', ignoreDuplicates: true });
-      }
-    } catch (err) {
-      console.error(`Error in feed ${feedConfig.name}:`, err.message);
-    }
-  }
-}
-
-async function analyzeNewsWithGemini() {
-  console.log('Analyzing articles with Gemini AI...');
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-  const { data: articles } = await supabase
-    .from('oil_news')
-    .select('id, title, description')
-    .is('sentiment_score', null)
-    .limit(20);
-  
-  if (!articles || articles.length === 0) {
-    console.log('All articles already scored or backlog empty.');
-    return;
-  }
-
-  for (const article of articles) {
-    try {
-      const prompt = `Analyze oil market news: "${article.title}". Return ONLY a number between -1.0 and 1.0 representing sentiment. No text, just the number.`;
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const score = parseFloat(response.text().trim());
-      const finalScore = isNaN(score) ? 0.2 : Math.max(-1.0, Math.min(1.0, score));
-      
-      await supabase.from('oil_news').update({ sentiment_score: finalScore }).eq('id', article.id);
-    } catch (err) {
-      // Fallback update so sentiment isn't left null
-      await supabase.from('oil_news').update({ sentiment_score: 0.15 }).eq('id', article.id);
-    }
-  }
-}
-
-async function generateSynthesizedReport() {
-  console.log('Generating Senior Analyst Executive Briefing...');
-  await supabase.from('daily_market_reports').insert([{
-    market_bias: "Bullish",
-    summary: "Crude benchmarks continue to exhibit firm upward resilience around current valuations, heavily supported by supply risk premiums and inventory tightness.",
-    key_drivers: ["Geopolitical supply risk premiums", "OPEC+ quota discipline", "Refinery throughput margins"]
-  }]);
-  console.log('Successfully published senior analyst briefing.');
-}
-
-async function generateAITradeSignals() {
-  console.log('Generating AI Trade Signals & Risk Management Setups...');
-  
-  const tomorrow = new Date();
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  const targetDateStr = tomorrow.toISOString().split('T')[0];
-
-  // Guaranteed robust default trade setups if Gemini JSON formatting varies
-  const signalsToInsert = [
-    {
-      symbol: "WTI",
-      action: "BUY LIMIT",
-      target_date: targetDateStr,
-      entry_price: 103.50,
-      stop_loss: 101.80,
-      take_profit: 106.20,
-      status: "PENDING",
-      reasoning: "Strong geopolitical support and bullish inventory draw expected in near-term session."
-    },
-    {
-      symbol: "BRENT",
-      action: "SELL LIMIT",
-      target_date: targetDateStr,
-      entry_price: 112.50,
-      stop_loss: 114.20,
-      take_profit: 109.50,
-      status: "PENDING",
-      reasoning: "Technical resistance confluence near upper Bollinger band with profit-taking expected."
-    }
-  ];
-
-  await supabase.from('trade_signals').delete().eq('target_date', targetDateStr);
-  const { error } = await supabase.from('trade_signals').insert(signalsToInsert);
-
-  if (error) {
-    console.error('Error saving trade signals to Supabase:', error.message);
-  } else {
-    console.log('Successfully published AI Trade Signals.');
+    console.error('Gemini sentiment analysis error:', err.message || err);
+    return 0.0;
   }
 }
 
 async function runPipeline() {
-  try {
-    await fetchAndStorePrices();
-    await collectNews();
-    await analyzeNewsWithGemini();
-    await generateSynthesizedReport();
-    await generateAITradeSignals();
-    console.log('Pipeline execution completed successfully.');
-  } catch (err) {
-    console.error('Pipeline fatal error:', err);
-  } finally {
-    process.exit(0);
+  console.log('Starting Oil Market Intelligence Ingestion Pipeline...');
+
+  for (const feedConfig of FEEDS) {
+    try {
+      console.log(`Fetching feed [${feedConfig.category}]: ${feedConfig.name}`);
+      let feed;
+      try {
+        feed = await parser.parseURL(feedConfig.url);
+      } catch (feedErr) {
+        console.warn(`Could not reach RSS endpoint for ${feedConfig.name}: ${feedErr.message || feedErr}`);
+        continue;
+      }
+
+      for (const item of (feed.items || []).slice(0, 5)) {
+        const title = item.title?.trim();
+        const url = item.link?.trim();
+        const published_at = item.isoDate || item.pubDate || new Date().toISOString();
+
+        if (!title || !url) continue;
+
+        const { data: existing, error: lookupError } = await supabase
+          .from('oil_news')
+          .select('id')
+          .eq('url', url)
+          .maybeSingle();
+
+        if (lookupError) {
+          console.warn(`Supabase lookup warning for ${url}:`, lookupError.message);
+          continue;
+        }
+
+        if (!existing) {
+          console.log(`[${feedConfig.name}] Analyzing sentiment for: "${title}"`);
+          const sentiment_score = await analyzeSentiment(title, feedConfig.category);
+
+          const { error: insertError } = await supabase.from('oil_news').insert({
+            title,
+            url,
+            source: feedConfig.name,
+            published_at,
+            sentiment_score
+          });
+
+          if (insertError) {
+            console.error(`Failed inserting news item from ${feedConfig.name}:`, insertError.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`Error processing feed ${feedConfig.name}:`, err.message || err);
+    }
   }
+
+  const { data: recentNews, error: recentError } = await supabase
+    .from('oil_news')
+    .select('sentiment_score')
+    .order('published_at', { ascending: false })
+    .limit(30);
+
+  if (!recentError && recentNews && recentNews.length > 0) {
+    const avgSentiment =
+      recentNews.reduce((acc, curr) => acc + Number(curr.sentiment_score || 0), 0) / recentNews.length;
+    console.log(`Calculated Rolling Market Sentiment Average: ${avgSentiment.toFixed(2)}`);
+  }
+
+  console.log('Main ingestion pipeline complete.');
 }
 
-runPipeline();
+runPipeline().catch(err => {
+  console.error('Fatal ingestion error:', err);
+  process.exit(1);
+});
