@@ -49,7 +49,7 @@ const FEEDS = [
 async function analyzeSentiment(text, category = 'Energy') {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: `Analyze the ${category} / geopolitical / economic impact of this headline on global crude oil prices (WTI/Brent). Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and +1.0 (extremely bullish), with no extra text: "${text}"`,
     });
     const raw = (response.text || '').trim();
