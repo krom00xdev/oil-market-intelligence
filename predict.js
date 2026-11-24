@@ -27,19 +27,18 @@ const RISK_PER_TRADE = 0.02; // 2% risk per trade ($20 on $1,000)
 
 async function generateWeeklyChallengeSignals() {
   try {
-    // 1. Fetch latest WTI & Brent prices
+    // 1. Fetch latest WTI & Brent prices (no created_at sort since column is absent)
     const { data: prices, error: pricesError } = await supabase
       .from('oil_prices')
       .select('*')
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(20);
 
     if (pricesError) {
       console.warn('Warning fetching oil_prices:', pricesError.message);
     }
 
-    const wti = prices?.find(p => ['WTI', 'wti', 'CL=F', 'USOIL'].includes(String(p.symbol).trim()));
-    const brent = prices?.find(p => ['BRENT', 'brent', 'BZ=F', 'UKOIL'].includes(String(p.symbol).trim()));
+    const wti = prices?.find(p => ['WTI', 'wti', 'CL=F', 'USOIL'].includes(String(p.symbol || '').trim()));
+    const brent = prices?.find(p => ['BRENT', 'brent', 'BZ=F', 'UKOIL'].includes(String(p.symbol || '').trim()));
     const wtiPrice = wti ? Number(wti.price) : 89.62;
     const brentPrice = brent ? Number(brent.price) : 95.72;
 
@@ -115,7 +114,7 @@ Rules:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: prompt,
     });
 
