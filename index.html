@@ -45,8 +45,8 @@
 
       <div class="glass-card p-6 rounded-2xl">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400">Average Sentiment Score</h3>
-        <p id="sentiment-score" class="text-3xl font-extrabold mt-2 text-blue-400">+0.25</p>
-        <p id="market-bias" class="text-sm text-gray-300 mt-1">Bias: <span class="text-emerald-400 font-semibold">Moderately Bullish</span></p>
+        <p id="sentiment-score" class="text-3xl font-extrabold mt-2 text-blue-400">+0.00</p>
+        <p id="market-bias" class="text-sm text-gray-300 mt-1">Bias: <span class="text-gray-400 font-semibold">Neutral</span></p>
       </div>
     </div>
 
@@ -163,12 +163,11 @@
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 
   <script>
-    // Paste your Supabase Project Details
     const SUPABASE_URL = "https://miecimhjygvllobwwsnb.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_SyS5PQKnMchbbVtxCoU-Bg_9MJV5eHN";
 
     let supabaseClient = null;
-    if (SUPABASE_URL.includes("https://miecimhjygvllobwwsnb.supabase.co") && !SUPABASE_URL.includes("miecimhjygvllobwwsnb")) {
+    if (SUPABASE_URL.startsWith("https://") && SUPABASE_ANON_KEY.length > 10 && window.supabase) {
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
 
@@ -438,7 +437,7 @@
             .from('oil_news')
             .select('*')
             .order('published_at', { ascending: false })
-            .limit(6);
+            .limit(20);
           if (data) newsItems = data;
         } catch (e) {}
       }
@@ -447,7 +446,20 @@
       if (newsContainer) {
         newsContainer.innerHTML = '';
         if (newsItems && newsItems.length > 0) {
-          newsItems.forEach(item => {
+          const avgScore = newsItems.reduce((sum, item) => sum + Number(item.sentiment_score || 0), 0) / newsItems.length;
+          const scoreEl = document.getElementById('sentiment-score');
+          const biasEl = document.getElementById('market-bias');
+          if (scoreEl) {
+            scoreEl.innerText = `${avgScore >= 0 ? '+' : ''}${avgScore.toFixed(2)}`;
+            scoreEl.className = `text-3xl font-extrabold mt-2 ${avgScore > 0.1 ? 'text-emerald-400' : avgScore < -0.1 ? 'text-rose-400' : 'text-blue-400'}`;
+          }
+          if (biasEl) {
+            const label = avgScore > 0.25 ? 'Strongly Bullish' : avgScore > 0.08 ? 'Moderately Bullish' : avgScore < -0.25 ? 'Strongly Bearish' : avgScore < -0.08 ? 'Moderately Bearish' : 'Neutral';
+            const color = avgScore > 0.08 ? 'text-emerald-400' : avgScore < -0.08 ? 'text-rose-400' : 'text-gray-400';
+            biasEl.innerHTML = `Bias: <span class="${color} font-semibold">${label}</span>`;
+          }
+
+          newsItems.slice(0, 6).forEach(item => {
             let sentimentColor = 'text-gray-400 bg-gray-800/50';
             if (item.sentiment_score > 0.1) sentimentColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
             else if (item.sentiment_score < -0.1) sentimentColor = 'text-rose-400 bg-rose-500/10 border-rose-500/20';
