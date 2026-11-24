@@ -25,9 +25,80 @@ const START_CAPITAL = 1000.0;
 const TARGET_CAPITAL = 1100.0;
 const RISK_PER_TRADE = 0.02; // 2% risk per trade ($20 on $1,000)
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function generateWithRetry(prompt, models = ['gemini-3.8-flash'], maxRetriesPerModel = 3) {
+  for (const model of models) {
+    for (let attempt = 1; attempt <= maxRetriesPerModel; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+        });
+        if (response && response.text) {
+          return response.text;
+        }
+      } catch (err) {
+        const msg = String(err?.message || err || '');
+        const isTransient =
+          err?.status === 503 ||
+          err?.status === 429 ||
+          msg.includes('503') ||
+          msg.includes('429') ||
+          msg.includes('UNAVAILABLE') ||
+          msg.includes('high demand');
+
+        console.warn(`[${model}] Attempt ${attempt}/${maxRetriesPerModel} failed: ${msg}`);
+
+        if (isTransient && attempt < maxRetriesPerModel) {
+          const backoffMs = 1500 * Math.pow(2, attempt - 1); // 1.5s, 3s, 6s
+          console.log(`Waiting ${backoffMs}ms before retrying ${model}...`);
+          await sleep(backoffMs);
+          continue;
+        }
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+function buildFallbackSignals(wtiPrice, brentPrice, avgSentiment) {
+  const isBullish = avgSentiment >= 0;
+  const wtiAction = isBullish ? 'BUY' : 'SELL';
+  const brentAction = isBullish ? 'BUY' : 'SELL';
+
+  const wtiEntry = Number((wtiPrice + (isBullish ? 0.12 : -0.12)).toFixed(2));
+  const wtiSl = Number((wtiEntry + (isBullish ? -0.45 : 0.45)).toFixed(2));
+  const wtiTp = Number((wtiEntry + (isBullish ? 1.10 : -1.10)).toFixed(2));
+
+  const brentEntry = Number((brentPrice + (isBullish ? 0.15 : -0.15)).toFixed(2));
+  const brentSl = Number((brentEntry + (isBullish ? -0.45 : 0.45)).toFixed(2));
+  const brentTp = Number((brentEntry + (isBullish ? 1.15 : -1.15)).toFixed(2));
+
+  return [
+    {
+      symbol: 'WTI',
+      action: wtiAction,
+      entry_price: wtiEntry,
+      stop_loss: wtiSl,
+      take_profit: wtiTp,
+      reasoning: `Fallback momentum setup aligned with rolling sentiment (${avgSentiment.toFixed(2)}).`
+    },
+    {
+      symbol: 'BRENT',
+      action: brentAction,
+      entry_price: brentEntry,
+      stop_loss: brentSl,
+      take_profit: brentTp,
+      reasoning: `Fallback Brent breakout setup aligned with rolling sentiment (${avgSentiment.toFixed(2)}).`
+    }
+  ];
+}
+
 async function generateWeeklyChallengeSignals() {
   try {
-    // 1. Fetch latest WTI & Brent prices (no created_at sort since column is absent)
+    // 1. Fetch latest WTI & Brent prices
     const { data: prices, error: pricesError } = await supabase
       .from('oil_prices')
       .select('*')
@@ -93,7 +164,7 @@ async function generateWeeklyChallengeSignals() {
 
     const remainingToGoal = Math.max(0, TARGET_CAPITAL - currentEquity);
 
-    // 4. Generate aggressive signals with Gemini
+    // 4. Generate aggressive signals with Gemini (with retry + fallback)
     const prompt = `
 You are an aggressive intraday crude oil momentum trader (WTI & Brent) running a 7-day $1,000 to $1,100 (+10%) capital challenge.
 Current Equity: $${currentEquity.toFixed(2)} | Remaining to $1,100 Goal: $${remainingToGoal.toFixed(2)}
@@ -113,17 +184,24 @@ Rules:
 [{"symbol": "WTI", "action": "BUY" | "SELL", "entry_price": number, "stop_loss": number, "take_profit": number, "reasoning": "concise 1-sentence catalyst"}]
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-    });
+    let generatedSignals = [];
+    const rawText = await generateWithRetry(prompt, ['gemini-3.8-flash'], 3);
 
-    const rawText = response.text || '[]';
-    const cleanJson = rawText.replace(/```json|```/g, '').trim();
-    const generatedSignals = JSON.parse(cleanJson);
+    if (rawText) {
+      try {
+        const cleanJson = rawText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          generatedSignals = parsed;
+        }
+      } catch (parseErr) {
+        console.warn('Could not parse Gemini JSON, using momentum fallback:', parseErr.message);
+      }
+    }
 
-    if (!Array.isArray(generatedSignals) || generatedSignals.length === 0) {
-      throw new Error('Model returned an empty or non-array signal list.');
+    if (generatedSignals.length === 0) {
+      console.warn('Gemini unavailable after retries; generating fallback momentum signals.');
+      generatedSignals = buildFallbackSignals(wtiPrice, brentPrice, avgSentiment);
     }
 
     for (const sig of generatedSignals) {
