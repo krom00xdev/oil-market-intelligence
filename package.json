@@ -1,15 +1,10 @@
 {
-  "name": "oil-news-collector",
+  "name": "oil-market-intelligence",
   "version": "1.0.0",
-  "description": "Automated oil market news collector and analyzer",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "type": "module",
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
-    "rss-parser": "^3.13.0",
-    "@google/generative-ai": "^0.21.0",
-    "ws": "^8.16.0"
+    "@google/genai": "^3.6.1",
+    "@supabase/supabase-js": "^2.119.2",
+    "rss-parser": "^3.13.0"
   }
 }
