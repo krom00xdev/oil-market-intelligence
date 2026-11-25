@@ -28,7 +28,8 @@ const parser = new Parser({
   }
 });
 
-// Comprehensive OSINT, Think Tank, Financial, and Energy Intelligence Feeds
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const FEEDS = [
   { category: 'Financial & Commodity', name: 'OilPrice.com', url: 'https://oilprice.com/rss/main' },
   { category: 'Financial & Commodity', name: 'CNBC Energy', url: 'https://search.cnbc.com/rs/search/combinednews/rss?partnerId=wrnt&keywords=oil' },
@@ -46,18 +47,69 @@ const FEEDS = [
   { category: 'Financial & Commodity', name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' }
 ];
 
-async function analyzeSentiment(text, category = 'Energy') {
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: `Analyze the ${category} / geopolitical / economic impact of this headline on global crude oil prices (WTI/Brent). Return ONLY a floating point sentiment score between -1.0 (extremely bearish) and +1.0 (extremely bullish), with no extra text: "${text}"`,
-    });
-    const raw = (response.text || '').trim();
-    const score = parseFloat(raw);
-    return Number.isNaN(score) ? 0.0 : Math.max(-1.0, Math.min(1.0, score));
-  } catch (err) {
-    console.error('Gemini sentiment analysis error:', err.message || err);
-    return 0.0;
+function parseSentimentNumber(rawText) {
+  if (!rawText) return null;
+  const match = String(rawText).trim().match(/[+-]?\d+(\.\d+)?/);
+  if (!match) return null;
+  const val = parseFloat(match[0]);
+  if (Number.isNaN(val)) return null;
+  return Math.max(-1.0, Math.min(1.0, Number(val.toFixed(2))));
+}
+
+async function analyzeSentiment(text, category = 'Energy', maxRetries = 3) {
+  const prompt = `Analyze the ${category} / geopolitical / economic impact of this headline on global crude oil prices (WTI/Brent). Positive (+0.1 to +1.0) = bullish for oil prices; Negative (-0.1 to -1.0) = bearish for oil prices; Near 0.0 = unrelated or mixed. Return ONLY the number (e.g. +0.45 or -0.30): "${text}"`;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+      });
+
+      const parsed = parseSentimentNumber(response?.text);
+      if (parsed !== null) {
+        return parsed;
+      }
+    } catch (err) {
+      const msg = String(err?.message || err || '');
+      const isTransient =
+        err?.status === 503 ||
+        err?.status === 429 ||
+        msg.includes('503') ||
+        msg.includes('429') ||
+        msg.includes('UNAVAILABLE') ||
+        msg.includes('high demand');
+
+      if (isTransient && attempt < maxRetries) {
+        await sleep(1500 * Math.pow(2, attempt - 1));
+        continue;
+      }
+      console.error('Gemini sentiment analysis error:', msg);
+    }
+  }
+
+  return 0.0;
+}
+
+async function rescoreZeroArticles() {
+  const { data: zeroRows, error } = await supabase
+    .from('oil_news')
+    .select('id, title, source')
+    .eq('sentiment_score', 0)
+    .order('published_at', { ascending: false })
+    .limit(15);
+
+  if (error || !zeroRows || zeroRows.length === 0) return;
+
+  console.log(`Re-evaluating ${zeroRows.length} articles currently scored at 0.00...`);
+  for (const row of zeroRows) {
+    const newScore = await analyzeSentiment(row.title, row.source || 'Energy');
+    if (newScore !== 0) {
+      await supabase
+        .from('oil_news')
+        .update({ sentiment_score: newScore })
+        .eq('id', row.id);
+    }
   }
 }
 
@@ -114,6 +166,8 @@ async function runPipeline() {
       console.error(`Error processing feed ${feedConfig.name}:`, err.message || err);
     }
   }
+
+  await rescoreZeroArticles();
 
   const { data: recentNews, error: recentError } = await supabase
     .from('oil_news')
