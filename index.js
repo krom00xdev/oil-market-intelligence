@@ -47,17 +47,42 @@ const FEEDS = [
   { category: 'Financial & Commodity', name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' }
 ];
 
-function parseSentimentNumber(rawText) {
-  if (!rawText) return null;
-  const match = String(rawText).trim().match(/[+-]?\d+(\.\d+)?/);
-  if (!match) return null;
-  const val = parseFloat(match[0]);
-  if (Number.isNaN(val)) return null;
-  return Math.max(-1.0, Math.min(1.0, Number(val.toFixed(2))));
+function clampScore(num) {
+  if (typeof num !== 'number' || Number.isNaN(num)) return 0.0;
+  return Math.max(-1.0, Math.min(1.0, Number(num.toFixed(2))));
 }
 
-async function analyzeSentiment(text, category = 'Energy', maxRetries = 3) {
-  const prompt = `Analyze the ${category} / geopolitical / economic impact of this headline on global crude oil prices (WTI/Brent). Positive (+0.1 to +1.0) = bullish for oil prices; Negative (-0.1 to -1.0) = bearish for oil prices; Near 0.0 = unrelated or mixed. Return ONLY the number (e.g. +0.45 or -0.30): "${text}"`;
+function heuristicOilScore(title = '') {
+  const t = title.toLowerCase();
+  const bullishTerms = ['surge', 'rises', 'rally', 'attack', 'strike', 'disruption', 'shortage', 'cut', 'opec+', 'sanction', 'tight', 'buying spree', 'draw', 'geopolitical'];
+  const bearishTerms = ['slide', 'slump', 'drops', 'falls', 'glut', 'oversupply', 'surplus', 'ceasefire', 'deal', 'slowdown', 'weak demand', 'build'];
+
+  let score = 0;
+  for (const term of bullishTerms) {
+    if (t.includes(term)) score += 0.25;
+  }
+  for (const term of bearishTerms) {
+    if (t.includes(term)) score -= 0.25;
+  }
+  return clampScore(score);
+}
+
+async function scoreBatchWithGemini(items, maxRetries = 3) {
+  if (!items || items.length === 0) return [];
+
+  const numberedList = items
+    .map((item, idx) => `${idx + 1}. [${item.source || item.category || 'Energy'}] ${item.title}`)
+    .join('\n');
+
+  const prompt = `
+You are a crude oil (WTI & Brent) market sentiment analyst.
+For each numbered headline below, return a sentiment score from -1.00 (strongly bearish for crude prices) to +1.00 (strongly bullish for crude prices).
+Use 0.00 only when the headline has no meaningful supply, demand, geopolitical, or macro oil impact.
+Return ONLY a valid JSON array of numbers in the exact same order, e.g. [0.45, -0.35, 0.00].
+
+Headlines:
+${numberedList}
+`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -66,9 +91,17 @@ async function analyzeSentiment(text, category = 'Energy', maxRetries = 3) {
         contents: prompt,
       });
 
-      const parsed = parseSentimentNumber(response?.text);
-      if (parsed !== null) {
-        return parsed;
+      const raw = (response?.text || '').trim();
+      const cleaned = raw.replace(/```json|```/g, '').trim();
+      const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const arr = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(arr) && arr.length === items.length) {
+          return items.map((item, i) => {
+            const parsed = clampScore(Number(arr[i]));
+            return parsed !== 0 ? parsed : heuristicOilScore(item.title);
+          });
+        }
       }
     } catch (err) {
       const msg = String(err?.message || err || '');
@@ -84,37 +117,16 @@ async function analyzeSentiment(text, category = 'Energy', maxRetries = 3) {
         await sleep(1500 * Math.pow(2, attempt - 1));
         continue;
       }
-      console.error('Gemini sentiment analysis error:', msg);
+      console.warn('Gemini batch sentiment warning:', msg);
     }
   }
 
-  return 0.0;
-}
-
-async function rescoreZeroArticles() {
-  const { data: zeroRows, error } = await supabase
-    .from('oil_news')
-    .select('id, title, source')
-    .eq('sentiment_score', 0)
-    .order('published_at', { ascending: false })
-    .limit(15);
-
-  if (error || !zeroRows || zeroRows.length === 0) return;
-
-  console.log(`Re-evaluating ${zeroRows.length} articles currently scored at 0.00...`);
-  for (const row of zeroRows) {
-    const newScore = await analyzeSentiment(row.title, row.source || 'Energy');
-    if (newScore !== 0) {
-      await supabase
-        .from('oil_news')
-        .update({ sentiment_score: newScore })
-        .eq('id', row.id);
-    }
-  }
+  return items.map(item => heuristicOilScore(item.title));
 }
 
 async function runPipeline() {
   console.log('Starting Oil Market Intelligence Ingestion Pipeline...');
+  const newArticles = [];
 
   for (const feedConfig of FEEDS) {
     try {
@@ -146,20 +158,13 @@ async function runPipeline() {
         }
 
         if (!existing) {
-          console.log(`[${feedConfig.name}] Analyzing sentiment for: "${title}"`);
-          const sentiment_score = await analyzeSentiment(title, feedConfig.category);
-
-          const { error: insertError } = await supabase.from('oil_news').insert({
+          newArticles.push({
             title,
             url,
             source: feedConfig.name,
-            published_at,
-            sentiment_score
+            category: feedConfig.category,
+            published_at
           });
-
-          if (insertError) {
-            console.error(`Failed inserting news item from ${feedConfig.name}:`, insertError.message);
-          }
         }
       }
     } catch (err) {
@@ -167,7 +172,50 @@ async function runPipeline() {
     }
   }
 
-  await rescoreZeroArticles();
+  // Score new articles in batches of 10
+  for (let i = 0; i < newArticles.length; i += 10) {
+    const batch = newArticles.slice(i, i + 10);
+    const scores = await scoreBatchWithGemini(batch);
+
+    for (let j = 0; j < batch.length; j++) {
+      const art = batch[j];
+      const sentiment_score = scores[j] ?? 0.0;
+      const { error: insertError } = await supabase.from('oil_news').insert({
+        title: art.title,
+        url: art.url,
+        source: art.source,
+        published_at: art.published_at,
+        sentiment_score
+      });
+
+      if (insertError) {
+        console.error(`Failed inserting news item from ${art.source}:`, insertError.message);
+      } else {
+        console.log(`[${art.source}] (${sentiment_score >= 0 ? '+' : ''}${sentiment_score.toFixed(2)}) ${art.title}`);
+      }
+    }
+  }
+
+  // Re-score up to 15 existing 0.00 rows so older headlines also update
+  const { data: zeroRows, error: zeroError } = await supabase
+    .from('oil_news')
+    .select('id, title, source')
+    .eq('sentiment_score', 0)
+    .order('published_at', { ascending: false })
+    .limit(15);
+
+  if (!zeroError && zeroRows && zeroRows.length > 0) {
+    const rescored = await scoreBatchWithGemini(zeroRows);
+    for (let i = 0; i < zeroRows.length; i++) {
+      const nextScore = rescored[i];
+      if (nextScore !== 0) {
+        await supabase
+          .from('oil_news')
+          .update({ sentiment_score: nextScore })
+          .eq('id', zeroRows[i].id);
+      }
+    }
+  }
 
   const { data: recentNews, error: recentError } = await supabase
     .from('oil_news')
