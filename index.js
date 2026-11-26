@@ -47,6 +47,21 @@ const FEEDS = [
   { category: 'Financial & Commodity', name: 'Reuters Energy', url: 'https://www.reutersagency.com/feed/?best-topics=commodities-energy' }
 ];
 
+// Keep general FX/Crypto feeds focused strictly on oil, energy, macro rates, and geopolitical risk
+function isRelevantToOil(title = '', source = '') {
+  const alwaysKeepSources = ['OilPrice.com', 'CNBC Energy', 'OPEC News', 'S&P Global Energy & Commodities', 'Argus Media', 'Reuters Energy'];
+  if (alwaysKeepSources.includes(source)) return true;
+
+  const t = title.toLowerCase();
+  const keywords = [
+    'oil', 'crude', 'wti', 'brent', 'opec', 'petroleum', 'refinery', 'gasoline',
+    'diesel', 'energy', 'pipeline', 'tanker', 'hormuz', 'red sea', 'middle east',
+    'iran', 'iraq', 'saudi', 'russia', 'ukraine', 'libya', 'venezuela', 'sanction',
+    'drilling', 'shale', 'barrel', 'eia', 'api', 'inventory', 'inventories', 'fed', 'inflation'
+  ];
+  return keywords.some(k => t.includes(k));
+}
+
 function clampScore(num) {
   if (typeof num !== 'number' || Number.isNaN(num)) return 0.0;
   return Math.max(-1.0, Math.min(1.0, Number(num.toFixed(2))));
@@ -54,8 +69,17 @@ function clampScore(num) {
 
 function heuristicOilScore(title = '') {
   const t = title.toLowerCase();
-  const bullishTerms = ['surge', 'rises', 'rally', 'attack', 'strike', 'disruption', 'shortage', 'cut', 'opec+', 'sanction', 'tight', 'buying spree', 'draw', 'geopolitical'];
-  const bearishTerms = ['slide', 'slump', 'drops', 'falls', 'glut', 'oversupply', 'surplus', 'ceasefire', 'deal', 'slowdown', 'weak demand', 'build'];
+  const bullishTerms = [
+    'surge', 'rises', 'rise', 'rally', 'attack', 'strike', 'disruption', 'shortage',
+    'shortages', 'cut', 'cuts', 'opec+', 'sanction', 'sanctions', 'tight', 'buying spree',
+    'draw', 'geopolitical', 'security risk', 'security risks', 'conflict', 'threat', 'threats',
+    'blockade', 'outage', 'derail', 'rebound', 'boost', 'stimulus'
+  ];
+  const bearishTerms = [
+    'slide', 'slides', 'slump', 'drops', 'drop', 'falls', 'fall', 'glut', 'oversupply',
+    'surplus', 'ceasefire', 'deal', 'slowdown', 'weak demand', 'build', 'bidding rounds',
+    'output hike', 'production increase', 'recession'
+  ];
 
   let score = 0;
   for (const term of bullishTerms) {
@@ -76,48 +100,56 @@ async function scoreBatchWithGemini(items, maxRetries = 3) {
 
   const prompt = `
 You are a crude oil (WTI & Brent) market sentiment analyst.
-For each numbered headline below, return a sentiment score from -1.00 (strongly bearish for crude prices) to +1.00 (strongly bullish for crude prices).
-Use 0.00 only when the headline has no meaningful supply, demand, geopolitical, or macro oil impact.
-Return ONLY a valid JSON array of numbers in the exact same order, e.g. [0.45, -0.35, 0.00].
+For each numbered headline below, return a sentiment score from -1.00 (strongly bearish for crude oil prices) to +1.00 (strongly bullish for crude oil prices).
+Rules:
+- Supply disruptions, attacks, sanctions, OPEC cuts, inventory draws, or bullish demand = positive (+0.15 to +0.90).
+- New supply/bidding rounds, output hikes, demand slowdowns, peace/ceasefire deals, or inventory builds = negative (-0.15 to -0.90).
+- Only return 0.00 if completely unrelated to oil, energy, macro economy, or geopolitics.
+Return ONLY a valid JSON array of numbers in the exact same order, e.g. [0.45, -0.35, 0.15].
 
 Headlines:
 ${numberedList}
 `;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-      });
+  const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
 
-      const raw = (response?.text || '').trim();
-      const cleaned = raw.replace(/```json|```/g, '').trim();
-      const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const arr = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(arr) && arr.length === items.length) {
-          return items.map((item, i) => {
-            const parsed = clampScore(Number(arr[i]));
-            return parsed !== 0 ? parsed : heuristicOilScore(item.title);
-          });
+  for (const model of models) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+        });
+
+        const raw = (response?.text || '').trim();
+        const cleaned = raw.replace(/```json|```/g, '').trim();
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const arr = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(arr) && arr.length === items.length) {
+            return items.map((item, i) => {
+              const parsed = clampScore(Number(arr[i]));
+              return parsed !== 0 ? parsed : heuristicOilScore(item.title);
+            });
+          }
         }
-      }
-    } catch (err) {
-      const msg = String(err?.message || err || '');
-      const isTransient =
-        err?.status === 503 ||
-        err?.status === 429 ||
-        msg.includes('503') ||
-        msg.includes('429') ||
-        msg.includes('UNAVAILABLE') ||
-        msg.includes('high demand');
+      } catch (err) {
+        const msg = String(err?.message || err || '');
+        const isTransient =
+          err?.status === 503 ||
+          err?.status === 429 ||
+          msg.includes('503') ||
+          msg.includes('429') ||
+          msg.includes('UNAVAILABLE') ||
+          msg.includes('high demand');
 
-      if (isTransient && attempt < maxRetries) {
-        await sleep(1500 * Math.pow(2, attempt - 1));
-        continue;
+        if (isTransient && attempt < maxRetries) {
+          await sleep(1200 * Math.pow(2, attempt - 1));
+          continue;
+        }
+        console.warn(`[${model}] Batch sentiment warning:`, msg);
+        break;
       }
-      console.warn('Gemini batch sentiment warning:', msg);
     }
   }
 
@@ -139,12 +171,13 @@ async function runPipeline() {
         continue;
       }
 
-      for (const item of (feed.items || []).slice(0, 5)) {
+      for (const item of (feed.items || []).slice(0, 6)) {
         const title = item.title?.trim();
         const url = item.link?.trim();
         const published_at = item.isoDate || item.pubDate || new Date().toISOString();
 
         if (!title || !url) continue;
+        if (!isRelevantToOil(title, feedConfig.name)) continue;
 
         const { data: existing, error: lookupError } = await supabase
           .from('oil_news')
@@ -196,23 +229,26 @@ async function runPipeline() {
     }
   }
 
-  // Re-score up to 15 existing 0.00 rows so older headlines also update
+  // Re-score up to 40 existing 0.00 rows in batches of 10
   const { data: zeroRows, error: zeroError } = await supabase
     .from('oil_news')
     .select('id, title, source')
     .eq('sentiment_score', 0)
     .order('published_at', { ascending: false })
-    .limit(15);
+    .limit(40);
 
   if (!zeroError && zeroRows && zeroRows.length > 0) {
-    const rescored = await scoreBatchWithGemini(zeroRows);
-    for (let i = 0; i < zeroRows.length; i++) {
-      const nextScore = rescored[i];
-      if (nextScore !== 0) {
-        await supabase
-          .from('oil_news')
-          .update({ sentiment_score: nextScore })
-          .eq('id', zeroRows[i].id);
+    for (let i = 0; i < zeroRows.length; i += 10) {
+      const batch = zeroRows.slice(i, i + 10);
+      const rescored = await scoreBatchWithGemini(batch);
+      for (let j = 0; j < batch.length; j++) {
+        const nextScore = rescored[j];
+        if (nextScore !== 0) {
+          await supabase
+            .from('oil_news')
+            .update({ sentiment_score: nextScore })
+            .eq('id', batch[j].id);
+        }
       }
     }
   }
